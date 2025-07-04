@@ -1,0 +1,117 @@
+---
+title: "Birth Country Imputation"
+author: "Jamie Christy & Dana Burtseva"
+date: "2025-06-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("~/Desktop/Schoolwork/2025_SoSe/ARE/Final Project/country-imputation")
+
+library(tidyverse)
+```
+
+# Topic 9: Birth Country Encryption
+
+Key Concepts:
+tidyverse, webscraping, functional programming, gt, shiny
+
+Short Description:
+The goal is to provide a suitable R interface to support the correction of missing values. Infer the country of birth from the place of birth and auxiliary features.
+
+Tasks:
+Develop a workflow to impute missing values in the birth_country variable using auxiliary features such as first_citizenship and second_citizenship, along with external reference data.
+Your solution should include:
+• A routine to obtain reference data on locations around the world (possibly also historical)
+• A method of your choice for the imputation
+• Support for files with unencrypted birth country data
+• An interactive display of the results, including a success rate for exact matches.
+• A visualization of the distribution of imputed birth countries.
+• Optionally provide these features in a dashboard
+
+## Read raw data
+
+```{r}
+raw_df <- read.csv("data/birthdata.csv", sep=";")
+raw_df
+
+print(
+  raw_df 
+  %>% group_by(birth_country) %>% summarize(count=n())
+  %>% arrange(desc(count))
+)
+```
+## Pre-process
+```{r}
+# Swap unknowns to missing
+data_df <- (raw_df
+  %>% mutate(
+    birth_city = toupper(birth_city),
+    birth_city = replace(birth_city, 
+                         birth_city %in% c("UNBEKANNT", "NICHT BEKANNT"), 
+                         NA_character_)
+    )
+)
+data_df
+```
+
+
+# Impute
+## Country from known city
+```{r}
+city_country_df <- (
+  data_df
+  # %>% select(birth_city,birth_country)
+  %>% filter(!is.na(birth_country) & !is.na(birth_city))
+  %>% group_by(birth_city,birth_country) %>% summarize(count=n())
+  %>% arrange(desc(count))
+)
+city_country_df
+
+# Check for duplicates
+multi_country_df <- (city_country_df
+  %>% group_by(birth_city) %>% summarize(countries=n())
+  %>% filter(countries>1)
+  %>% arrange(desc(countries))
+  )
+multi_country_df
+
+print(
+  city_country_df
+  %>% right_join(multi_country_df, by="birth_city")
+  %>% arrange(desc(countries),birth_city,birth_country)
+)
+
+
+unique_countries_df <- (city_country_df
+  %>% group_by(birth_city) %>% summarize(countries=n())
+  %>% filter(countries==1)
+  %>% arrange(desc(birth_city))
+  %>% select(birth_city)
+  %>% left_join(city_country_df %>% select(!c(count)), by="birth_city")
+)
+unique_countries_df
+
+# Tag on non-duplicates
+data1_df <- (
+  data_df
+  %>% left_join(unique_countries_df
+                %>% rename(imputed_birth_country=birth_country)
+                , by="birth_city"
+                )
+)
+
+print(data1_df
+      %>% filter(!is.na(imputed_birth_country) & is.na(birth_country))
+      )
+
+print(data1_df
+      %>% filter(is.na(imputed_birth_country) & is.na(birth_country))
+      %>% group_by(birth_city)
+      # %>% group_by(citizenship_1,citizenship_2,birth_city)
+      %>% summarize(records=n())
+      %>% arrange(desc(records))
+    )
+```
+
