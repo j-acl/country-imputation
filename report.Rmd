@@ -1,0 +1,168 @@
+---
+title: "Birth Country Imputation"
+subtitle: "Advanced R for Econometricians"
+type: "Term Project"
+author: "Jamie Christy (256535) & Danaia Burtseva (237132)"
+discipline: "MSc. Econometrics"
+date: "`r Sys.Date()`"
+# studid: "256535 & 237132"
+supervisor: "Prof. Dr. Martin Christopher Arnold"
+secondsupervisor: "M.Sc. Martin Schmelzer"
+ssemester: "Summer Term 2025"
+# estdegree_emester: "Summer Term 2025"
+deadline: "September 8, 2025"
+output:
+  pdf_document:
+    keep_tex: yes
+    template: template.tex
+    fig_caption: yes
+    citation_package: biblatex
+    number_sections: true
+toc: true
+lot: true
+lof: true
+graphics: true
+tables: true
+biblio-title: References
+fontsize: 11pt
+geometry: lmargin=5cm,rmargin=2.5cm,tmargin=2.5cm,bmargin=2.5cm
+biblio-files: references.bib
+classoption: a4paper
+language: english
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gt)
+library(dplyr)
+library(broom)
+```
+
+# Rmarkdown Template
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+```{r pressure, echo=FALSE, fig.cap="\\label{fig:pressure} Pressure", fig.height=4, fig.pos="t"}
+plot(pressure)
+```
+
+Looking at Figure \ref{fig:pressure} makes me happy.
+
+# How Rmarkdown makes your life easy
+
+## The gt package
+
+In empirical work, it's crucial not only to present your results but also to explain your research strategy. Often that involves presenting data and results in a tabular format. The `gt` package provides a modern and flexible way to generate high-quality LaTeX or HTML tables from R objects.
+
+### Showing data using gt
+
+```{r, message=FALSE, warning=FALSE, results='asis'}
+data(trees)
+n <- 6
+trees_sample <- trees %>%
+  slice_sample(n = n) %>%
+  mutate(Row = row_number()) %>%
+  relocate(Row)
+
+gt_latex <- trees_sample %>%
+  gt() %>%
+  tab_header(
+    title = md(
+      paste(n, "Observations from the `trees` Dataset")
+      )
+  ) %>%
+  cols_label(
+    Girth = "Diameter",
+    Height = "Height",
+    Volume = "Volume"
+  ) %>%
+  tab_options(
+    latex.tbl.pos = "H", 
+    latex.use_longtable = FALSE
+  ) %>%
+  as_latex()
+
+# Replace \begin{table} with \begin{table}[H]
+gt_latex <- gsub(
+  "\\\\begin\\{table\\}", 
+  "\\\\begin{table}[H]", 
+  gt_latex
+)
+
+cat(gt_latex)
+```
+
+### Regression summary with `gt`
+
+```{r, message=FALSE, warning=FALSE, results='asis'}
+mod <- lm(Volume ~ Height, data = trees)
+mod_summary <- tidy(mod)
+
+gt_latex <- mod_summary %>%
+  mutate(term = recode(
+    term, "(Intercept)" = "Intercept")
+    ) %>%
+  gt() %>%
+  tab_header(
+    title = "OLS Regression: Volume ~ Height"
+  ) %>%
+  fmt_number(
+    columns = where(is.numeric),
+    decimals = 3
+  ) %>%
+  cols_label(
+    term = "Term",
+    estimate = "Estimate",
+    std.error = "Std. Error",
+    statistic = "t Statistic",
+    p.value = "p-Value"
+  ) %>%
+  as_latex()
+
+# Replace \begin{table} with \begin{table}[H]
+gt_latex <- gsub(
+  "\\\\begin\\{table\\}", 
+  "\\\\begin{table}[H]", 
+  gsub(
+    "caption\\*", 
+    "caption", 
+    gsub(
+      "\\\\begin\\{tabular\\*\\}", 
+      "\\\\label{tab:olsrestab}\n\\\\begin{tabular*}", 
+      gt_latex
+    )
+  )
+)
+
+cat(gt_latex)
+```
+
+Table \ref{tab:olsrestab} is a table with a label and thus can be referenced. Captioned tables will appear in the LOT.
+
+### Visualizing the model
+
+```{r, fig.cap="Dataset and regression"}
+plot(trees$Volume ~ trees$Height,
+     xlab = "Height", 
+     ylab = "Volume",
+     main = "Linear Regression: Volume ~ Height")
+abline(mod, col = "blue", lwd = 2)
+```
+
+## Citations
+
+A *bibtex* bibliography (see the fil `references.bib`) can be used for citations. The file name of the bibliography used in this template is `references.bib`.
+
+You can cite a source like this: [@Keil_2012] or @Litterman1986.
+
+A cited source will be automatically added to the end of the document.
+
+\pagebreak
