@@ -18,13 +18,16 @@ library(stringdist) # for fuzzy matching
 
 TODO:
 - report
-  - skeleton
-  - bib
-  - write-up
-  - refactor to funnel format?
+  - data, bib
+  - major imputation steps, refactor to funnel format?
   - clean up code (source helpers?)
+  - html dashboard?
+  - results/vis
+  - details in appendix
 - dashboard
 - improve matching
+  - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes!
+  - re-examine slash splitting -- keep only district? or handle in the collect...
   - transitive property
   - add NRW and RP databases for smaller cities
   - international list by distance
@@ -113,6 +116,11 @@ states_df <- (states_df
 states_df
 ```
 
+
+```{r}
+fuzzy_key_df <- read_csv("fuzzy_picks.csv")
+fuzzy_key_df
+```
 
 
 ## Pre-process
@@ -259,16 +267,16 @@ world_cities_df <- (world_cities_df
                     )
 world_cities_df
 
-print(
-  cities_filled_df %>% filter(is.na(imp_birth_country) | imp_type=="world_list")
-  %>% inner_join(world_cities_df, join_by(birth_city==name)) 
-  %>% select(birth_city,country.y,iso3.y) %>% distinct()
-)
+# print(
+#   cities_filled_df %>% filter(is.na(imp_birth_country) | imp_type=="world_list")
+#   %>% inner_join(world_cities_df, join_by(birth_city==name)) 
+#   %>% select(birth_city,country.y,iso3.y) %>% distinct()
+# )
 
-eng_names_df <- (
-  data_filled_df %>% group_by(birth_city) %>% summarize(n=n(),.groups="drop")
-  %>% inner_join(world_cities_df, join_by(birth_city==name)) 
-)
+# eng_names_df <- (
+#   data_filled_df %>% group_by(birth_city) %>% summarize(n=n(),.groups="drop")
+#   %>% inner_join(world_cities_df, join_by(birth_city==name)) 
+# )
 eng_names_df
 ```
 
@@ -294,7 +302,7 @@ multi_country_df <- (city_country_df
   %>% arrange(desc(total_city_records), birth_city, desc(count))
 )
 multi_country_df
-print(multi_country_df %>% filter(str_detect(birth_city,"LEBA")))
+# print(multi_country_df %>% filter(str_detect(birth_city,"LEBA")))
 
 best_countries_df <- (
   multi_country_df
@@ -302,7 +310,7 @@ best_countries_df <- (
   %>% select(birth_city, birth_country, pct_country, total_city_records)
 )
 best_countries_df
-print(multi_country_df %>% filter(birth_city=="BELGRAD"))
+print(multi_country_df %>% filter(birth_city=="DAMASKUS"))
 
 ```
 
@@ -345,7 +353,7 @@ best_citizens_df <- (
   %>% select(birth_city, citizenship, pct_citizen, total_city_records)
 )
 best_citizens_df
-print(multi_country_df %>% filter(birth_city=="BELGRAD"))
+print(multi_citizen_df %>% filter(birth_city=="BELGRAD"))
 
 ```
 
@@ -479,6 +487,7 @@ data_filled_df
 print(data_filled_df 
       %>% group_by(imp_type) 
       %>% summarize(n = n(), .groups="drop")
+      %>% mutate(pct=n/48031 * 100)
       %>% arrange(desc(n))
       )
 
@@ -486,6 +495,24 @@ print(data_filled_df
       %>% filter(is.na(birth_country)) 
       %>% filter(!is.na(imp_birth_country)) 
       %>% group_by(imp_type, imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
+      %>% arrange(desc(n))
+      )
+
+print(data_filled_df 
+      %>% filter(!is.na(birth_country)) 
+      %>% group_by(imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
+      %>% arrange(desc(n))
+      )
+
+print(data_filled_df 
+      %>% filter(is.na(birth_country)) 
+      %>% group_by(imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
+      %>% arrange(desc(n))
+      )
+
+print(data_filled_df 
+      %>% group_by(imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
+      %>% mutate(pct=n/48031 * 100)
       %>% arrange(desc(n))
       )
 ```
@@ -560,11 +587,6 @@ fuzzy_candidates
 # write_csv(fuzzy_candidates, "fuzzy_candidates.csv")
 ```
 
-```{r}
-fuzzy_key_df <- read_csv("fuzzy_picks.csv")
-fuzzy_key_df
-```
-
 
 ```{r}
 # Unidentified
@@ -608,6 +630,15 @@ print(data_filled_df
       )
 
 ```
+
+
+```{r}
+
+print(data_filled_df %>% filter(str_detect(birth_city, "RASTEN")))
+
+```
+
+
 # Resolve multi-classed
 
 ```{r}

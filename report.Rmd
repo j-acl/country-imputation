@@ -5,11 +5,11 @@ type: "Term Project"
 author: "Jamie Christy (256535) & Danaia Burtseva (237132)"
 discipline: "MSc. Econometrics"
 date: "`r Sys.Date()`"
-# studid: "256535 & 237132"
+studid: "256535 & 237132"
 supervisor: "Prof. Dr. Martin Christopher Arnold"
 secondsupervisor: "M.Sc. Martin Schmelzer"
-ssemester: "Summer Term 2025"
-# estdegree_emester: "Summer Term 2025"
+# ssemester: 1
+semester: "Summer Term 2025"
 deadline: "September 8, 2025"
 output:
   pdf_document:
@@ -25,7 +25,7 @@ graphics: true
 tables: true
 biblio-title: References
 fontsize: 11pt
-geometry: lmargin=5cm,rmargin=2.5cm,tmargin=2.5cm,bmargin=2.5cm
+geometry: lmargin=4cm,rmargin=3.5cm,tmargin=2.5cm,bmargin=2.5cm
 biblio-files: references.bib
 classoption: a4paper
 language: english
@@ -38,17 +38,70 @@ library(dplyr)
 library(broom)
 ```
 
-# Rmarkdown Template
+# Introduction
 
-## R Markdown
+Missing or non-standard data poses a persistent challenge in empirical research, but can sometimes be ameliorated. This paper demonstrates a practical implementation of imputing missing demographic information using auxiliary features and external reference datasets. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+We consider a set of mock administrative data in which 40% of records are missing country of birth, and implement a procedure to assign each of these a 'best guess' country. The challenges are broadly twofold: we must handle inconsistent formatting in birth city names, and we must match birth cities or citizenships to countries.
 
-```{r cars}
+Our approach combines multiple imputation strategies in a hierarchical framework, beginning with the most reliable sources (exact city matches in official databases) and progressively incorporating less certain approaches (citizenship-based imputation) for remaining missing values. We use direct indications of country in birth city names, matches to German or international reference datasets, cities with some non-missing values, typical citizenships associated with cities, and a few manual mappings to assign cities to countries. When direct city matching fails, we fall back to record-level indication of citizenship, which generally but not always leads to identification of 'Germany.'
+
+The majority of incomplete records are matched to a German city by direct reference, and many are matched using appearances of their birth city in the complete records, then we usually fall back to citizenship. Post-imputation, we see a population born 29% in Germany, 9% in Poland, 8% in Syria, and a long tail of other countries.
+
+The remainder of this paper is structured as follows. Section \ref{sec:# Data} describes the data sources and the preprocessing to relate them to each other. Section \ref{sec:# Imputation} details our imputation methodology, including the hierarchical matching process and the stepwise impacts on the incomplete records. Section \ref{sec:# Results} presents the results, including final success rates and a visualization of the geographic distribution of imputed birth countries. Section \ref{sec:# Conclusion} discusses the limitations of our approach, potential extensions, and general takweaways for similar data imputation challenges.
+
+# Data
+
+```{r data, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+Our work combines a given 'incomplete records' dataset with external sources:
+- DeSaatis
+- statistiks.de
+- International
+
+## Incomplete records
+
+Our dataset contains NNN observations of individuals with citizenship and birth location information, of which approximately NNN records (NNN%) are missing birth country data. The data exhibits a strong German orientation, with many observations appearing to represent individuals in North Rhine-Westphalia (NRW). This geographic concentration, while potentially limiting generalizability, provides an opportunity to leverage region-specific knowledge and data sources for more accurate imputation.
+
+## DeSaatis
+
+## DEU Muni
+
+## International
+
+(the actual impact is relatively minor. motivationally, one of the authors mostly really wanted to remove the obvious non-german cities. however, note that this also serves as a weak confirmation that the remaining unmatched records do *not* match to a major international city)
+
+```{r eng_data}
 summary(cars)
 ```
 
-## Including Plots
+# Imputation
+
+The data exhibits a strong German orientation, with many observations appearing to represent individuals in North Rhine-Westphalia (NRW). This geographic concentration, while potentially limiting generalizability, provides an opportunity to leverage region-specific knowledge and data sources for more accurate imputation.
+
+The imputation challenge is complicated by several factors. First, birth city names often appear in non-standardized formats, including variations with slashes ("/") indicating multiple possible interpretations, historical name changes, and inconsistent transliteration practices. Second, the relationship between citizenship and birth country is not deterministic—individuals may hold citizenship in countries other than their birth country due to naturalization, dual citizenship, or historical boundary changes. Third, many locations have changed political boundaries over time, requiring decisions about how to handle historical territories such as former Yugoslav republics or Prussian territories.
+
+The methodology incorporates domain knowledge about German administrative geography and historical political boundaries. For German cities, we implement both exact matching and simplified matching that removes common prefixes and suffixes. For international locations, we prioritize modern political boundaries while acknowledging that some assignments may not reflect historical accuracy. The imputation process follows a hierarchical decision tree, beginning with the most reliable sources (exact city matches in official databases) and progressively incorporating less certain approaches (citizenship-based imputation) for remaining missing values.
+
+
+
+## Standardizing data
+
+Necessary for grouping cities, and for matching to datasets.
+
+We first standardize birth city names, splitting entries on delimiter characters, applying fuzzy matching techniques to handle minor spelling variations or errors, and parsing out direct indications of country. We then systematically match cities against reference datasets for German municipalities and international cities. 
+
+## Named countries
+
+## German cities
+
+## Non-missing city-level information
+
+For cities that appear in both complete and incomplete records, we extract empirical patterns from the complete data to inform imputation. We identify all city-country combinations in records with non-missing birth country information, calculating the frequency with which each city corresponds to each country. Cities where a single country accounts for more than 60% of complete observations are assigned that dominant country. For example, if "BELGRAD" appears in 10 complete records and 8 of those indicate Serbia as the birth country, we assign Serbia to any incomplete records listing "BELGRAD" as the birth city. This approach leverages the assumption that individuals sharing the same birth city are likely to share the same birth country, while accounting for cases where cities may legitimately correspond to multiple countries due to historical boundary changes or data entry variations. The 60% threshold balances the desire to use empirical patterns against the risk of misclassification in ambiguous cases.
 
 ```{r pressure, echo=FALSE, fig.cap="\\label{fig:pressure} Pressure", fig.height=4, fig.pos="t"}
 plot(pressure)
@@ -56,7 +109,7 @@ plot(pressure)
 
 Looking at Figure \ref{fig:pressure} makes me happy.
 
-# How Rmarkdown makes your life easy
+# Results
 
 ## The gt package
 
@@ -66,6 +119,7 @@ In empirical work, it's crucial not only to present your results but also to exp
 
 ```{r, message=FALSE, warning=FALSE, results='asis'}
 data(trees)
+
 n <- 6
 trees_sample <- trees %>%
   slice_sample(n = n) %>%
@@ -157,7 +211,11 @@ plot(trees$Volume ~ trees$Height,
 abline(mod, col = "blue", lwd = 2)
 ```
 
-## Citations
+# Conclusion
+
+Missing data poses a persistent challenge in empirical research, particularly when key demographic variables are incomplete. This paper addresses the practical problem of imputing missing birth country information using auxiliary features and external reference datasets. In administrative and survey data, birth country information is frequently incomplete due to data entry errors, respondent non-response, or historical changes in data collection practices. The ability to accurately impute these missing values has important implications for demographic analysis, migration studies, and policy research.
+
+This work contributes to the literature on practical data imputation in several ways. First, it demonstrates how external reference data can be systematically integrated into the imputation process, incorporating knowledge about geographic and political relationships. Second, it provides a framework for handling the common problem of non-standardized location names in administrative data. Third, it illustrates how auxiliary variables like citizenship can be used probabilistically when their relationship to the target variable is imperfect but informative.
 
 A *bibtex* bibliography (see the fil `references.bib`) can be used for citations. The file name of the bibliography used in this template is `references.bib`.
 
@@ -165,4 +223,17 @@ You can cite a source like this: [@Keil_2012] or @Litterman1986.
 
 A cited source will be automatically added to the end of the document.
 
+
 \pagebreak
+
+# Software References {-}
+\addcontentsline{toc}{section}{Software References}
+
+\newpage
+
+# Appendix {-}
+\addcontentsline{toc}{section}{Appendix}
+
+## A.1 Description of relevant variables
+
+## A.2 Fuzzy and manual matches

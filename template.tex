@@ -247,8 +247,9 @@ $endif$
   \large{$type$}\\
   \vspace{1cm}
   \large{
-  \IfLanguageName{english}{Submitted to the Faculty of \\ Business Administration and Economics \\at the \\University of Duisburg-Essen}{Vorgelegt der \\Fakultät für Wirtschaftswissenschaften der \\ Universität Duisburg-Essen}\\}
+  \IfLanguageName{english}{Submitted to the Faculty of \\ Business Administration and Economics \\at the University of Duisburg-Essen}{Vorgelegt der \\Fakultät für Wirtschaftswissenschaften der \\ Universität Duisburg-Essen}\\}
   \vspace{0.75cm}
+$date$\\  \vspace{0.5cm}
   \large{\IfLanguageName{english}{from:}{von:}}\\
   \vspace{0.5cm}
   $author$\\
@@ -287,22 +288,23 @@ $endif$
   Semester:
   \end{minipage}
   \begin{minipage}[t]{0.7\textwidth}
-  \hspace{1cm}\IfLanguageName{english}{\nth{$ssemester$} Semester}{$ssemester$. Fachsemester}
-  \end{minipage}
-
+%  \hspace{1cm}\IfLanguageName{english}{\nth{$ssemester$} Semester}{$ssemester$}
+    \hspace{1cm}$semester$
+    \end{minipage}
+    
 %    \noindent\begin{minipage}[t]{0.5\textwidth}
 %    \IfLanguageName{english}{Graduation (est.):}{Vsl. Studienabschluss:}
 %    \end{minipage}
 %    \begin{minipage}[t]{0.7\textwidth}
 %    \hspace{1cm}$estdegree_emester$
 %    \end{minipage}
-
-  \noindent\begin{minipage}[t]{0.5\textwidth}
-  \IfLanguageName{english}{Deadline:}{Abgabefrist:}
-  \end{minipage}
-  \begin{minipage}[t]{0.7\textwidth}
-  \hspace{1cm}$deadline$
-  \end{minipage}
+    
+    \noindent\begin{minipage}[t]{0.5\textwidth}
+    \IfLanguageName{english}{Deadline:}{Abgabefrist:}
+    \end{minipage}
+    \begin{minipage}[t]{0.7\textwidth}
+    \hspace{1cm}$deadline$
+    \end{minipage}
 
 \end{titlepage}
 
