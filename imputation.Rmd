@@ -24,8 +24,11 @@ TODO:
   - html dashboard?
   - results/vis
   - details in appendix
+  
 - dashboard
+
 - improve matching
+  - multi-match resolution
   - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes!
   - re-examine slash splitting -- keep only district? or handle in the collect...
   - transitive property
@@ -157,15 +160,15 @@ data_df <- (raw_df
   %>% rename(bc_name=name, bc_iso3=iso_3)
 )
 
-data_df
+print(data_df %>% filter(str_detect(birth_city,'/')))
 
 
 data_df <- (data_df
             # process slashes
   %>% mutate(original_city = birth_city)      # Preserve original
-  %>% separate_rows(birth_city, sep = "/")          # Split into components  
+  %>% separate_rows(birth_city, sep = "/")          # Split into components
   %>% mutate(birth_city = str_trim(birth_city))     # Clean whitespace
-  
+
   # fuzzy fix names
   %>% left_join(fuzzy_key_df %>% filter(!is.na(canon)) %>% select(birth_city,canon), join_by(birth_city))
   %>% mutate(birth_city=case_when(!is.na(canon) ~ canon, .default=birth_city),
@@ -310,7 +313,7 @@ best_countries_df <- (
   %>% select(birth_city, birth_country, pct_country, total_city_records)
 )
 best_countries_df
-print(multi_country_df %>% filter(birth_city=="DAMASKUS"))
+print(multi_country_df %>% filter(birth_city=="IRAN"))
 
 ```
 
@@ -392,11 +395,21 @@ cities_filled_df <- (
               %>% rename(birth_city=deu_city, imp_deu=imp_type)
               , by="birth_city")
   
+  # Ostgebeit matches
+  # join on ostgebeit lookup
+  # (reconsider district parsing)
+  
   # Parenthetical matches
   %>% left_join(
     states_df %>% select(bev_state, name)
     %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
     by = c("parenthetical" = "name")
+  )
+  # Cities with country name
+  %>% left_join(
+    states_df %>% select(bev_state, name) %>% rename(lit_state=bev_state) %>% mutate(country_literal=TRUE)
+    %>% mutate(lit_state = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+    by = c("birth_city" = "name")
   )
   
   # Internally assigned city-countries
@@ -425,6 +438,7 @@ cities_filled_df <- (
                !is.na(imp_birth_country) ~ imp_birth_country, # given
                !is.na(imp_deu) ~ "000", # german match
                !is.na(bev_state) ~ bev_state, # parenthetical
+               country_literal ~ lit_state, # city is country
                !is.na(imp_deu_expanded) ~ "000", # german base
                pct_country>=50 ~ city_birth_country,
                !is.na(world_id) ~ world_id,
@@ -437,6 +451,7 @@ cities_filled_df <- (
                !is.na(imp_deu) ~ imp_deu,
                !is.na(imp_deu_expanded) ~ "german_base",
                !is.na(bev_state) ~ "parenthetical",
+               country_literal ~ "country_literal", # city is country
                pct_country==100 ~ "unique_city",
                pct_country>=50 ~ "city_o50",
                !is.na(world_id) ~ "world_list",
@@ -607,8 +622,10 @@ print(data_filled_df
 print(
   raw_df
   %>% mutate(pid = row_number())
-  %>% inner_join(data_filled_df %>% filter(imp_type=="top_citizenship") %>% select(birth_city, pid), join_by(pid))
-  # %>% filter(str_detect(birth_city.y,"LABIAU"))
+  %>% inner_join(data_filled_df 
+                 # %>% filter(imp_type=="top_citizenship") 
+                 %>% select(birth_city, pid), join_by(pid))
+  %>% filter(str_detect(birth_city.y,"RASTEN"))
 )
 
 # Cities without countries assigned
@@ -644,9 +661,18 @@ print(data_filled_df %>% filter(str_detect(birth_city, "RASTEN")))
 ```{r}
 
 # Multi-matches
-print(data_filled_df %>% filter(str_detect(imp_birth_country, "/")))
+print(data_filled_df 
+      # %>% filter(str_detect(imp_birth_country, "/"))
+      %>% filter(pid==32942)
+      )
+
+print(cities_filled_df 
+      # %>% filter(str_detect(imp_birth_country, "/"))
+      %>% filter(pid==32942)
+      )
 
 # When citizenship matches one, use that one
+# prioritize in same hierarchy as imputation
 ```
 
 
