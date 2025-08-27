@@ -230,7 +230,7 @@ For remaining cases, we assign birth country based on the individual's citizensh
 
 ## Implementation Summary
 
-Though this hierarchical assignment of imputed birth country, we use reliable information if available, and less certain inference methods if necessary. Each individual record is processed through the complete hierarchy, with assignment occurring at the first successful match. Furthermore, the source of each match is flagged on identification to enable analysis of results.
+Though this hierarchical assignment of imputed birth country, we use reliable information if available, and less certain inference methods if necessary. Each individual record is processed through the complete hierarchy, with assignment occurring at the first successful match, while the source of each match is flagged to enable analysis of results.
 
 # Results
 

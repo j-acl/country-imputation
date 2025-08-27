@@ -21,11 +21,11 @@ TODO:
 - refresh fuzzy
 
 - report
-  - fuzzy
-  - figures/debug
+  - tables/debug
   - results
+  - fuzzy
+  - visualization
   - html dashboard?
-  - results/vis
   - details in appendix
   
 - dashboard
