@@ -17,10 +17,13 @@ library(stringdist) # for fuzzy matching
 ```
 
 TODO:
+- clean up code (source helpers?)
+- refresh fuzzy
+
 - report
-  - data, bib
-  - major imputation steps, refactor to funnel format?
-  - clean up code (source helpers?)
+  - fuzzy
+  - figures/debug
+  - results
   - html dashboard?
   - results/vis
   - details in appendix
@@ -275,12 +278,6 @@ world_cities_df
 #   %>% inner_join(world_cities_df, join_by(birth_city==name)) 
 #   %>% select(birth_city,country.y,iso3.y) %>% distinct()
 # )
-
-# eng_names_df <- (
-#   data_filled_df %>% group_by(birth_city) %>% summarize(n=n(),.groups="drop")
-#   %>% inner_join(world_cities_df, join_by(birth_city==name)) 
-# )
-eng_names_df
 ```
 
 
@@ -313,7 +310,7 @@ best_countries_df <- (
   %>% select(birth_city, birth_country, pct_country, total_city_records)
 )
 best_countries_df
-print(multi_country_df %>% filter(birth_city=="IRAN"))
+print(multi_country_df %>% filter(birth_city=="DAMASKUS"))
 
 ```
 
@@ -368,19 +365,6 @@ smart_collapse <- function(x, sep = "/") {
 }
 ```
 
-```{r}
-print(data_filled_df
-      %>% filter(!is.na(citizenship_2) & !is.na(imp_birth_country))
-      %>% mutate(
-        citizenship_1 = case_when(citizenship_1=="0"~"000",.default=citizenship_1),
-        c1_match = citizenship_1==imp_birth_country,
-        c2_match = citizenship_2==imp_birth_country,
-        deu = citizenship_1 == "000"
-      )
-      %>% group_by(c1_match,c2_match,deu) %>% summarize(n=n()) %>% arrange(desc(n))
-)
-```
-
 # Impute
 
 ```{r}
@@ -404,13 +388,14 @@ cities_filled_df <- (
     states_df %>% select(bev_state, name)
     %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
     by = c("parenthetical" = "name")
-  )
-  # Cities with country name
+  ) #%>% select(-name)
+  # Cities with a country name
   %>% left_join(
-    states_df %>% select(bev_state, name) %>% rename(lit_state=bev_state) %>% mutate(country_literal=TRUE)
-    %>% mutate(lit_state = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+    states_df %>% select(lit_state=bev_state, name)
+    %>% mutate(country_literal=TRUE)
+    %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
     by = c("birth_city" = "name")
-  )
+  ) #%>% select(-name)
   
   # Internally assigned city-countries
   %>% left_join(best_countries_df
@@ -424,11 +409,11 @@ cities_filled_df <- (
   %>% left_join(deu_base_cities_df
               %>% rename(base_city=deu_city, imp_deu_expanded=imp_type)
               , by="base_city")
-  
+
   # World cities matches
   %>% left_join(world_cities_df, join_by(birth_city==name))
   %>% left_join(states_df %>% rename(world_id=bev_state) %>% select(world_id,iso_3) %>% distinct() %>% filter(!(world_id %in% c(133, 276))), join_by(iso3==iso_3))
-    
+
   # Citizenship-based cities
   %>% left_join(best_citizens_df
                 %>% filter(total_city_records>1) # at 1, equivalent to top citizenship
@@ -443,8 +428,8 @@ cities_filled_df <- (
                pct_country>=50 ~ city_birth_country,
                !is.na(world_id) ~ world_id,
                pct_citizen>=70 ~ citizenship
-               ), 
-             
+               ),
+
              imp_type=case_when(
                !is.na(imp_type) ~ imp_type,
                fuzzy & !is.na(imp_birth_country) ~ "fuzzy",
@@ -459,8 +444,8 @@ cities_filled_df <- (
                pct_citizen>=70 ~ "citizen_o70"
                )
              )
-  
-  
+
+
   # labeled imputed country
   %>% left_join(states_df, join_by(imp_birth_country==bev_state)  )
   %>% rename(imp_name=name, imp_iso3=iso_3)
@@ -553,8 +538,26 @@ print(cities_filled_df
       %>% arrange(desc(n))
       )
 ```
+```{r}
+print(data_filled_df
+      %>% filter(!is.na(citizenship_2) & !is.na(imp_birth_country))
+      %>% mutate(
+        citizenship_1 = case_when(citizenship_1=="0"~"000",.default=citizenship_1),
+        c1_match = citizenship_1==imp_birth_country,
+        c2_match = citizenship_2==imp_birth_country,
+        deu = citizenship_1 == "000"
+      )
+      %>% group_by(c1_match,c2_match,deu) %>% summarize(n=n()) %>% arrange(desc(n))
+)
+```
+
 
 ```{r}
+eng_names_df <- (
+  data_filled_df %>% group_by(birth_city) %>% summarize(n=n(),.groups="drop")
+  %>% inner_join(world_cities_df, join_by(birth_city==name))
+)
+eng_names_df
 
 # Fuzzy match unindentified cities
 fuzzy_candidates <- (
