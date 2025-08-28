@@ -358,6 +358,7 @@ Missing data poses a persistent challenge in empirical research, particularly wh
 We combine ; we use ; to assign the overall population. 
 
 process can be continually refined. Expect matches to improve if we -- 
+* handle historical countries and territories more intelligently. Some state codes are excessively separated (eg Yugoslavia vs Repulic of Yugoslavia), some are grouped unintuitively (namely Palestine and Taiwan). Currently we take state codes as they are given, including when calculating majority country/citizenship for particular cities.
 
 This demonstrates how external reference data can be systematically integrated into the imputation process, incorporating knowledge about geographic and political relationships. 
 
