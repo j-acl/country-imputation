@@ -10,13 +10,30 @@ knitr::opts_chunk$set(echo = TRUE)
 setwd("~/Desktop/Schoolwork/2025_SoSe/ARE/Final Project/country-imputation")
 
 library(tidyverse)
-library(readxl)
 library(stringi) # for character standardization
 library(stringdist) # for fuzzy matching
-
+source('preprocess.R') # read/write external data
 ```
 
-TODO:
+# Topic 9: Birth Country Encryption
+
+Key Concepts:
+tidyverse, webscraping, functional programming, gt, shiny
+
+Short Description:
+The goal is to provide a suitable R interface to support the correction of missing values. Infer the country of birth from the place of birth and auxiliary features.
+
+Tasks:
+Develop a workflow to impute missing values in the birth_country variable using auxiliary features such as first_citizenship and second_citizenship, along with external reference data.
+Your solution should include:
+• A routine to obtain reference data on locations around the world (possibly also historical)
+• A method of your choice for the imputation
+• Support for files with unencrypted birth country data
+• An interactive display of the results, including a success rate for exact matches.
+• A visualization of the distribution of imputed birth countries.
+• Optionally provide these features in a dashboard
+
+# TODO
 - clean up code (source helpers?)
 - refresh fuzzy
 
@@ -42,84 +59,39 @@ TODO:
   - use german city syntax for germany
   - patch misc (former yugoslav, prussia)
 
-# Topic 9: Birth Country Encryption
 
-Key Concepts:
-tidyverse, webscraping, functional programming, gt, shiny
 
-Short Description:
-The goal is to provide a suitable R interface to support the correction of missing values. Infer the country of birth from the place of birth and auxiliary features.
+# Prepare data
 
-Tasks:
-Develop a workflow to impute missing values in the birth_country variable using auxiliary features such as first_citizenship and second_citizenship, along with external reference data.
-Your solution should include:
-• A routine to obtain reference data on locations around the world (possibly also historical)
-• A method of your choice for the imputation
-• Support for files with unencrypted birth country data
-• An interactive display of the results, including a success rate for exact matches.
-• A visualization of the distribution of imputed birth countries.
-• Optionally provide these features in a dashboard
+## Read raw 
 
-## Read raw data
+```{r}
+# preprocess_data(readin_raw = TRUE, writeout = TRUE) # first run
+preprocess_data(readin_raw = FALSE, writeout = FALSE) # use cached
+```
+
 
 ```{r}
 # Birthdata
-raw_df <- read.csv("data/birthdata.csv", sep=";")
-raw_df
-
-print(
-  raw_df 
+print(raw_df 
   %>% group_by(birth_country) %>% summarize(count=n())
   %>% arrange(desc(count))
 )
 ```
 
 ```{r}
-# Destatis data
-
-# ## Schluessel
-# xwalk_df <- read_xlsx("data/Staatsangehoerigkeitsgebietsschluessel_xls.xlsx", 
-#                   sheet = 'A1. Einträge alphabetisch', skip = 8, col_names = FALSE)
-# colnames(xwalk_df) <- c("search_term", "bev_area", "bev_nationality", "bev_state", "iso_2", "iso_3", "continent", "alt1", "alt2", "note")
-# print(xwalk_df %>% arrange(bev_state))
-# 
-# # Staatenliste
-# states_df <- read_xlsx("data/DESTATIS_Staatenliste_2024-08-01.xlsx", 
-#                   sheet = 'daten', skip = 8, col_names = FALSE)
-# colnames(states_df) <- c("bev_state", "name1", "name2", "name3", "nationality", "date", "iso_3", "iso_2","note")
-# 
-# states_df
-
-# Staatenliste
-states_df <- read_xlsx("data/Staatsangehoerigkeitsgebietsschluessel_xls.xlsx", 
-                  sheet = '2. Staatsangehörigkeit', skip = 8, col_names = FALSE)
-colnames(states_df) <- c("name", "nationality", "bev_state", "x1","x2","x3","x4","x5", "iso_2", "iso_3","note")
-
+# DESTATIS - Staatenliste
 states_df <- (states_df 
               %>% select(name,bev_state,iso_3)
               %>% filter(!is.na(bev_state))
               )
 
-
-# xwalk_iso_df <- (xwalk_df 
-#                  %>% select(bev_state, iso_2, iso_3) 
-#   %>% filter(
-#     grepl("^[0-9]{3}$", bev_state) &    # Exactly 3 digits
-#     grepl("^[A-Z]{2}$", iso_2) &        # Exactly 2 uppercase letters
-#     grepl("^[A-Z]{3}$", iso_3)          # Exactly 3 uppercase letters
-#   )
-#                  %>% distinct()
-#   %>% arrange(bev_state)
-#                  )
-# 
-# name_patch_df <- (
-#   states_df
+# print(states_df
 #   %>% filter(bev_state %in% c("120", "132", "133", "138", "159", "162", "276", "995"))
 #   %>% distinct()
 # )
-# name_patch_df
 
-states_df
+states_df %>% arrange(bev_state)
 ```
 
 
@@ -128,8 +100,7 @@ fuzzy_key_df <- read_csv("fuzzy_picks.csv")
 fuzzy_key_df
 ```
 
-
-## Pre-process
+## Process main dataset
 
 ```{r}
 
@@ -156,8 +127,6 @@ data_df <- (raw_df
     parenthetical = str_trim(str_extract(birth_city, "(?<=\\().*?(?=\\))")),  # Extract content
     birth_city = str_remove(birth_city, "\\s*\\(.*\\)") # Remove parentheticals
     )
-  # Tag on ISO
-  # %>% left_join(xwalk_iso_df, join_by(birth_country==bev_state))
   # Tag on names
   %>% left_join(states_df %>% select(bev_state, name, iso_3), join_by(birth_country==bev_state)  )
   %>% rename(bc_name=name, bc_iso3=iso_3)
@@ -165,15 +134,15 @@ data_df <- (raw_df
 
 print(data_df %>% filter(str_detect(birth_city,'/')))
 
-
 data_df <- (data_df
-            # process slashes
+  # process slashes
   %>% mutate(original_city = birth_city)      # Preserve original
   %>% separate_rows(birth_city, sep = "/")          # Split into components
   %>% mutate(birth_city = str_trim(birth_city))     # Clean whitespace
 
   # fuzzy fix names
-  %>% left_join(fuzzy_key_df %>% filter(!is.na(canon)) %>% select(birth_city,canon), join_by(birth_city))
+  %>% left_join(fuzzy_key_df %>% filter(!is.na(canon)) 
+                %>% select(birth_city,canon), join_by(birth_city))
   %>% mutate(birth_city=case_when(!is.na(canon) ~ canon, .default=birth_city),
              fuzzy=case_when(!is.na(canon) ~ TRUE, .default=FALSE))
 )
@@ -182,27 +151,18 @@ data_df
 
 ```
 
+# City references
 
-# Identify German cities
+## German
 
 ```{r deu_cities}
-# Read in directory
 # https://www.statistikportal.de/de/veroeffentlichungen/anschriftenverzeichnis
-
-# Col L: Ort
-deu_cities_df <- read_xlsx("data/Anschriften_der_Gemeinde_und_Stadtverwaltungen_Stand_31012023_final.xlsx", 
-                  sheet = 'Anschriften_31_01_2023', skip = 8, cell_cols(12), col_names = FALSE)
-# Col H: Gemeinde/Stadt
-deu_cities_df <- bind_rows(deu_cities_df,
-                           read_xlsx("data/Anschriften_der_Gemeinde_und_Stadtverwaltungen_Stand_31012023_final.xlsx", sheet = 'Anschriften_31_01_2023', skip = 8, cell_cols(8), col_names = FALSE) )
-colnames(deu_cities_df) <- c("deu_city")
-
 # Standardize formatting
 deu_cities_df <- (
   deu_cities_df 
       %>% distinct()
       %>% mutate(
-            deu_city = (deu_city
+        deu_city = (deu_city
          %>% str_remove_all("[,´]")                # Remove inconsistent punctuation
          %>% stri_trans_general("Latin-ASCII")     # Remove accents
          %>% toupper()
@@ -227,10 +187,8 @@ deu_cities_df <- bind_rows(deu_cities_df,
 
 deu_cities_df
 
-print(deu_cities_df %>% filter(str_detect(deu_city, "WANN")))
+# print(deu_cities_df %>% filter(str_detect(deu_city, "WANN")))
 ```
-
-## Strip to basic names
 
 ```{r}
 clean_german_city <- function(city_name) {
@@ -260,16 +218,16 @@ print(deu_base_cities_df %>% filter(str_detect(deu_city, "FALLINGBOSTEL")))
 
 ```
 
+## World
 
-```{r internat_cities}
+```{r world_cities}
 # https://simplemaps.com/data/world-cities
-world_cities_df <- read_csv("data/worldcities.csv") 
 world_cities_df <- (world_cities_df 
                     %>% mutate(name=city %>% stri_trans_general("Latin-ASCII") %>% str_remove_all("[,´']")  %>% toupper())
                     # highest population version of name (switch to closest?)
                     %>% group_by(name)
                     %>% summarize(iso3=first(iso3),country=first(country),.groups="drop")
-                    %>% filter(!(name %in% c("EPE","JORDAN", "TOLEDO", "BISMARCK")))
+                    %>% filter(!(name %in% c("EPE", "TOLEDO", "BISMARCK")))
                     )
 world_cities_df
 
@@ -280,8 +238,16 @@ world_cities_df
 # )
 ```
 
+## Ostgebiete
 
-# Country from known city
+```{r}
+
+```
+
+
+# City-level internal information
+## Non-missing birth_country
+
 ```{r}
 city_country_df <- (
   data_df
@@ -302,7 +268,7 @@ multi_country_df <- (city_country_df
   %>% arrange(desc(total_city_records), birth_city, desc(count))
 )
 multi_country_df
-# print(multi_country_df %>% filter(str_detect(birth_city,"LEBA")))
+print(multi_country_df %>% filter(pct_country<60 & pct_country>50))
 
 best_countries_df <- (
   multi_country_df
@@ -314,7 +280,7 @@ print(multi_country_df %>% filter(birth_city=="DAMASKUS"))
 
 ```
 
-# Use citizenship
+## Citizenship
 
 ```{r}
 city_citizens_df <- (
@@ -358,6 +324,7 @@ print(multi_citizen_df %>% filter(birth_city=="BELGRAD"))
 ```
 
 ```{r}
+# Collapse strings into alphabetized combination delimited by /
 smart_collapse <- function(x, sep = "/") {
   clean_x <- x[!is.na(x) & x != ""]
   if(length(clean_x) == 0) return(NA_character_)
@@ -368,7 +335,6 @@ smart_collapse <- function(x, sep = "/") {
 # Impute
 
 ```{r}
-
 cities_filled_df <- (
   data_df
   %>% mutate(imp_birth_country=birth_country,
@@ -388,14 +354,14 @@ cities_filled_df <- (
     states_df %>% select(bev_state, name)
     %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
     by = c("parenthetical" = "name")
-  ) #%>% select(-name)
+  )
   # Cities with a country name
   %>% left_join(
     states_df %>% select(lit_state=bev_state, name)
     %>% mutate(country_literal=TRUE)
     %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
     by = c("birth_city" = "name")
-  ) #%>% select(-name)
+  )
   
   # Internally assigned city-countries
   %>% left_join(best_countries_df
@@ -412,7 +378,9 @@ cities_filled_df <- (
 
   # World cities matches
   %>% left_join(world_cities_df, join_by(birth_city==name))
-  %>% left_join(states_df %>% rename(world_id=bev_state) %>% select(world_id,iso_3) %>% distinct() %>% filter(!(world_id %in% c(133, 276))), join_by(iso3==iso_3))
+  %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
+                %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
+                , join_by(iso3==iso_3))
 
   # Citizenship-based cities
   %>% left_join(best_citizens_df
@@ -425,7 +393,7 @@ cities_filled_df <- (
                !is.na(bev_state) ~ bev_state, # parenthetical
                country_literal ~ lit_state, # city is country
                !is.na(imp_deu_expanded) ~ "000", # german base
-               pct_country>=50 ~ city_birth_country,
+               pct_country>=60 ~ city_birth_country,
                !is.na(world_id) ~ world_id,
                pct_citizen>=70 ~ citizenship
                ),
@@ -438,7 +406,7 @@ cities_filled_df <- (
                !is.na(bev_state) ~ "parenthetical",
                country_literal ~ "country_literal", # city is country
                pct_country==100 ~ "unique_city",
-               pct_country>=50 ~ "city_o50",
+               pct_country>=60 ~ "city_o60",
                !is.na(world_id) ~ "world_list",
                pct_citizen==100 ~ "unique_citizen",
                pct_citizen>=70 ~ "citizen_o70"
@@ -490,7 +458,25 @@ print(data_filled_df
       %>% mutate(pct=n/48031 * 100)
       %>% arrange(desc(n))
       )
+```
 
+# QA and investigations
+
+```{r}
+# Check citizenship-birth relationships
+print(data_filled_df
+      %>% filter(!is.na(citizenship_2) & !is.na(imp_birth_country))
+      %>% mutate(
+        citizenship_1 = case_when(citizenship_1=="0"~"000",.default=citizenship_1),
+        c1_match = citizenship_1==imp_birth_country,
+        c2_match = citizenship_2==imp_birth_country,
+        deu = citizenship_1 == "000"
+      )
+      %>% group_by(c1_match,c2_match,deu) %>% summarize(n=n(), .groups="drop") %>% arrange(desc(n))
+)
+```
+
+```{r}
 print(data_filled_df 
       %>% filter(is.na(birth_country)) 
       %>% filter(!is.na(imp_birth_country)) 
@@ -517,12 +503,13 @@ print(data_filled_df
       )
 ```
 
+
 ```{r}
 # Check world list cities
 print(cities_filled_df 
       # %>% filter(is.na(imp_birth_country)) 
       # %>% anti_join(data_filled_df %>% filter(!is.na(imp_birth_country)),by=c("pid"))
-      %>% filter(imp_type=="world_list")
+      # %>% filter(imp_type=="world_list")
       # %>% group_by(birth_city) 
       # %>% group_by(birth_city,imp_name) %>% summarize(n = n(), .groups="drop")
       # %>% arrange(desc(n))
@@ -532,33 +519,14 @@ print(cities_filled_df
 print(cities_filled_df 
       # %>% filter(is.na(imp_birth_country)) 
       # %>% anti_join(data_filled_df %>% filter(!is.na(imp_birth_country)),by=c("pid"))
-      %>% filter(imp_type=="city_o50")
+      %>% filter(imp_type=="city_o60")
       # %>% group_by(birth_city) 
       %>% group_by(birth_city,imp_name) %>% summarize(n = n(), .groups="drop")
       %>% arrange(desc(n))
       )
 ```
-```{r}
-print(data_filled_df
-      %>% filter(!is.na(citizenship_2) & !is.na(imp_birth_country))
-      %>% mutate(
-        citizenship_1 = case_when(citizenship_1=="0"~"000",.default=citizenship_1),
-        c1_match = citizenship_1==imp_birth_country,
-        c2_match = citizenship_2==imp_birth_country,
-        deu = citizenship_1 == "000"
-      )
-      %>% group_by(c1_match,c2_match,deu) %>% summarize(n=n()) %>% arrange(desc(n))
-)
-```
-
 
 ```{r}
-eng_names_df <- (
-  data_filled_df %>% group_by(birth_city) %>% summarize(n=n(),.groups="drop")
-  %>% inner_join(world_cities_df, join_by(birth_city==name))
-)
-eng_names_df
-
 # Fuzzy match unindentified cities
 fuzzy_candidates <- (
   data_filled_df 
@@ -587,8 +555,8 @@ fuzzy_candidates <- (
       # matches
     },
     edit1_eng = {
-      candidates <- eng_names_df$birth_city[
-        abs(nchar(eng_names_df$birth_city) - nchar(birth_city)) <= 1
+      candidates <- world_cities_df$name[
+        abs(nchar(world_cities_df$name) - nchar(birth_city)) <= 1
         & nchar(birth_city) > 5
       ]
       distances <- stringdist(birth_city, candidates, method = "dl")
