@@ -34,29 +34,28 @@ Your solution should include:
 • Optionally provide these features in a dashboard
 
 # TODO
-- refactor code?
+- refactor code
 
 - report
   - tables/debug
   - results
   - fuzzy
   - visualization
-  - html dashboard?
+  - html dashboard
   - details in appendix
   
 - dashboard
 
+- multi-match resolution
+
 - improve matching
-  - multi-match resolution
-  - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes!
-  - re-examine slash splitting -- keep only district? or handle in the collect...
+  - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes
   - transitive property
   - add NRW and RP databases for smaller cities
   - international list by distance
   - get historical list
-  - match from country names
   - use german city syntax for germany
-  - patch misc (former yugoslav, prussia)
+  - patch misc (former yugoslav, taiwan)
 
 
 
@@ -184,6 +183,13 @@ deu_cities_df <- bind_rows(deu_cities_df,
     )
 ) %>% distinct() %>% arrange(deu_city)
 
+# Append some manual names
+deu_cities_df <- bind_rows(deu_cities_df,
+data.frame(
+  deu_city = c("WESTFALEN", "WESTF.", "WANNE-EICKEL", "WIEDENBRUCK", "HOLSTEIN", "KIRCHHELLEN"),
+imp_type="german_city")
+)
+
 deu_cities_df
 
 # print(deu_cities_df %>% filter(str_detect(deu_city, "WANN")))
@@ -240,7 +246,17 @@ world_cities_df
 ## Ostgebiete
 
 ```{r}
-
+ostgebiete_df <-rbind(data.frame(
+  # Poland
+  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG"),
+  ostgebiete = "152"
+),data.frame(
+  # Kaliningrad
+  birth_city = c("GERDAUEN", "SAMLAND"),
+  ostgebiete = "160"
+)
+)
+ostgebiete_df
 ```
 
 
@@ -271,7 +287,7 @@ print(multi_country_df %>% filter(pct_country<60 & pct_country>50))
 
 best_countries_df <- (
   multi_country_df
-  %>% filter(pct_country>60)
+  %>% filter(pct_country>50)
   %>% select(birth_city, birth_country, pct_country, total_city_records)
 )
 best_countries_df
@@ -345,8 +361,7 @@ cities_filled_df <- (
               , by="birth_city")
   
   # Ostgebeit matches
-  # join on ostgebeit lookup
-  # (reconsider district parsing)
+  %>% left_join(ostgebiete_df, by="birth_city")
   
   # Parenthetical matches
   %>% left_join(
@@ -391,8 +406,9 @@ cities_filled_df <- (
                !is.na(imp_deu) ~ "000", # german match
                !is.na(bev_state) ~ bev_state, # parenthetical
                country_literal ~ lit_state, # city is country
+               !is.na(ostgebiete) ~ ostgebiete,
                !is.na(imp_deu_expanded) ~ "000", # german base
-               pct_country>=60 ~ city_birth_country,
+               pct_country>=50 ~ city_birth_country,
                !is.na(world_id) ~ world_id,
                pct_citizen>=70 ~ citizenship
                ),
@@ -402,10 +418,11 @@ cities_filled_df <- (
                fuzzy & !is.na(imp_birth_country) ~ "fuzzy",
                !is.na(imp_deu) ~ imp_deu,
                !is.na(imp_deu_expanded) ~ "german_base",
-               !is.na(bev_state) ~ "parenthetical",
+               !is.na(bev_state) ~ "country_literal", # parenthetical
                country_literal ~ "country_literal", # city is country
+               !is.na(ostgebiete) ~ "ostgebiete",
                pct_country==100 ~ "unique_city",
-               pct_country>=60 ~ "city_o60",
+               pct_country>=50 ~ "city_o50",
                !is.na(world_id) ~ "world_list",
                pct_citizen==100 ~ "unique_citizen",
                pct_citizen>=70 ~ "citizen_o70"
@@ -478,7 +495,6 @@ print(data_filled_df
 ```{r}
 print(data_filled_df 
       %>% filter(is.na(birth_country)) 
-      %>% filter(!is.na(imp_birth_country)) 
       %>% group_by(imp_type, imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
       %>% arrange(desc(n))
       )
@@ -491,6 +507,7 @@ print(data_filled_df
 
 print(data_filled_df 
       %>% filter(is.na(birth_country)) 
+      %>% filter(imp_type!="top_citizenship")
       %>% group_by(imp_birth_country, imp_name, imp_iso3) %>% summarize(n = n(), .groups="drop") 
       %>% arrange(desc(n))
       )
@@ -528,8 +545,8 @@ print(cities_filled_df
 ```{r}
 # Fuzzy match unindentified cities
 fuzzy_candidates <- (
-  data_filled_df 
-  %>% filter(is.na(imp_birth_country))
+  cities_filled_df 
+  %>% filter(imp_type %in% c("fuzzy","top_citizenship"))
   %>% select(birth_city) %>% distinct()
   %>% rowwise()
   %>% mutate(
@@ -576,8 +593,8 @@ fuzzy_candidates
 ```{r}
 # Unidentified
 print(cities_filled_df 
-      %>% filter(is.na(imp_birth_country)) 
-      %>% anti_join(data_filled_df %>% filter(imp_type=="top_citizenship"),by=c("pid"))
+      # %>% filter(is.na(imp_birth_country)) 
+      %>% anti_join(data_filled_df %>% filter(imp_type!="top_citizenship"),by=c("pid"))
       # %>% group_by(birth_city) %>% summarize(n = n(), .groups="drop")
       %>% group_by(birth_city) %>% summarize(n = n(), .groups="drop")
       %>% arrange(desc(n))
@@ -588,14 +605,23 @@ print(data_filled_df
       %>% select(pid, citizenship_1, citizenship_2,birth_city)
       )
 
+print(data_filled_df 
+      %>% filter(imp_type=="top_citizenship")
+      %>% filter(str_detect(birth_city,"/"))
+      %>% select(pid, citizenship_1, citizenship_2,birth_city)
+      )
+```
+
+
+```{r}
 # Check raw names
 print(
   raw_df
   %>% mutate(pid = row_number())
   %>% inner_join(data_filled_df 
-                 # %>% filter(imp_type=="top_citizenship") 
+                 %>% filter(imp_type=="top_citizenship")
                  %>% select(birth_city, pid), join_by(pid))
-  %>% filter(str_detect(birth_city.y,"RASTEN"))
+  %>% filter(str_detect(birth_city.y,"/"))
 )
 
 # Cities without countries assigned
@@ -616,11 +642,6 @@ print(data_filled_df
       %>% arrange(birth_city,birth_country)
       )
 
-```
-
-
-```{r}
-
 print(data_filled_df %>% filter(str_detect(birth_city, "RASTEN")))
 
 ```
@@ -632,12 +653,11 @@ print(data_filled_df %>% filter(str_detect(birth_city, "RASTEN")))
 
 # Multi-matches
 print(data_filled_df 
-      # %>% filter(str_detect(imp_birth_country, "/"))
-      %>% filter(pid==32942)
+      %>% filter(str_detect(imp_birth_country, "/"))
+      # %>% filter(pid==32942)
       )
 
 print(cities_filled_df 
-      # %>% filter(str_detect(imp_birth_country, "/"))
       %>% filter(pid==32942)
       )
 
