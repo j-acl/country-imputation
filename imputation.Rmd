@@ -34,8 +34,7 @@ Your solution should include:
 • Optionally provide these features in a dashboard
 
 # TODO
-- clean up code (source helpers?)
-- refresh fuzzy
+- refactor code?
 
 - report
   - tables/debug
