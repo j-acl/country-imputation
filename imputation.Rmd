@@ -214,6 +214,7 @@ clean_german_city <- function(city_name) {
 deu_base_cities_df = (
   deu_cities_df %>% mutate( deu_city=clean_german_city(deu_city) )
   %>% filter(!str_detect(deu_city, "VERWALTUNGSGEMEINSCHAFT"))
+  %>% filter(deu_city!="OSTERODE") # Polish town not to be confused with Osterode am Harz
   %>% distinct
   %>% arrange(deu_city)
 )
@@ -232,7 +233,7 @@ world_cities_df <- (world_cities_df
                     # highest population version of name (switch to closest?)
                     %>% group_by(name)
                     %>% summarize(iso3=first(iso3),country=first(country),.groups="drop")
-                    %>% filter(!(name %in% c("EPE", "TOLEDO", "BISMARCK")))
+                    %>% filter(!(name %in% c("EPE","JORDAN", "TOLEDO", "BISMARCK")))
                     )
 world_cities_df
 
@@ -474,6 +475,14 @@ print(data_filled_df
       %>% mutate(pct=n/48031 * 100)
       %>% arrange(desc(n))
       )
+
+print(data_filled_df 
+      %>% filter(imp_type!="given")
+      %>% group_by(imp_type) 
+      %>% summarize(n = n(), .groups="drop")
+      %>% mutate(pct=n/(48031-29217) * 100)
+      %>% arrange(desc(n))
+      )
 ```
 
 # QA and investigations
@@ -525,7 +534,7 @@ print(data_filled_df
 print(cities_filled_df 
       # %>% filter(is.na(imp_birth_country)) 
       # %>% anti_join(data_filled_df %>% filter(!is.na(imp_birth_country)),by=c("pid"))
-      # %>% filter(imp_type=="world_list")
+      %>% filter(imp_type=="world_list")
       # %>% group_by(birth_city) 
       # %>% group_by(birth_city,imp_name) %>% summarize(n = n(), .groups="drop")
       # %>% arrange(desc(n))
@@ -535,7 +544,7 @@ print(cities_filled_df
 print(cities_filled_df 
       # %>% filter(is.na(imp_birth_country)) 
       # %>% anti_join(data_filled_df %>% filter(!is.na(imp_birth_country)),by=c("pid"))
-      %>% filter(imp_type=="city_o60")
+      %>% filter(imp_type=="city_o50")
       # %>% group_by(birth_city) 
       %>% group_by(birth_city,imp_name) %>% summarize(n = n(), .groups="drop")
       %>% arrange(desc(n))
@@ -658,7 +667,7 @@ print(data_filled_df
       )
 
 print(cities_filled_df 
-      %>% filter(pid==32942)
+      %>% inner_join(data_filled_df%>% filter(str_detect(imp_birth_country, "/"))%>%select(pid), join_by(pid))
       )
 
 # When citizenship matches one, use that one
