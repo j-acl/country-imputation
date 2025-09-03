@@ -33,6 +33,30 @@ Your solution should include:
 • A visualization of the distribution of imputed birth countries.
 • Optionally provide these features in a dashboard
 
+# TODO
+
+- gui/dashboard
+
+- report
+  - tables/debug
+  - fuzzy
+  - results
+  - visualization
+  - html dashboard
+  - details in appendix
+  
+- clean code for production
+  
+- improve matching
+  - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes
+  - transitive property
+  - add NRW and RP databases for smaller cities
+  - international list by distance
+  - get historical list
+  - use german city syntax for germany
+  - patch misc (former yugoslav, taiwan/palestine)
+
+
 # Prepare data
 
 ## Read raw 
@@ -58,6 +82,7 @@ states_df <- (states_df
               %>% filter(!is.na(bev_state))
               )
 
+# Check bev codes with multiple labels
 # print(states_df
 #   %>% filter(bev_state %in% c("120", "132", "133", "138", "159", "162", "276", "995"))
 #   %>% distinct()
@@ -103,6 +128,8 @@ data_df <- (raw_df
   %>% left_join(states_df %>% select(bev_state, name, iso_3), join_by(birth_country==bev_state)  )
   %>% rename(bc_name=name, bc_iso3=iso_3)
 )
+# Save parentheticals
+parentheticals_df <- data_df %>% select(pid, parenthetical) %>% distinct()
 
 print(data_df %>% filter(str_detect(birth_city,'/')))
 
@@ -118,6 +145,8 @@ data_df <- (data_df
   %>% mutate(birth_city=case_when(!is.na(canon) ~ canon, .default=birth_city),
              fuzzy=case_when(!is.na(canon) ~ TRUE, .default=FALSE))
 )
+
+
 
 data_df
 
@@ -223,12 +252,16 @@ world_cities_df
 ```{r}
 ostgebiete_df <-rbind(data.frame(
   # Poland
-  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG"),
+  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG","PR. EYLAU"),
   ostgebiete = "152"
 ),data.frame(
   # Kaliningrad
-  birth_city = c("GERDAUEN", "SAMLAND"),
+  birth_city = c("GERDAUEN", "SAMLAND","GUMBINNEN"),
   ostgebiete = "160"
+),data.frame(
+  # Lithuania
+  birth_city = c("HEYDEKRUG"),
+  ostgebiete = "142"
 )
 )
 ostgebiete_df
@@ -313,6 +346,11 @@ print(multi_citizen_df %>% filter(birth_city=="BELGRAD"))
 
 ```
 
+
+# Impute
+
+## Helper functions
+
 ```{r}
 # Collapse strings into alphabetized combination delimited by /
 smart_collapse <- function(x, sep = "/") {
@@ -322,126 +360,450 @@ smart_collapse <- function(x, sep = "/") {
 }
 ```
 
-# Impute
+```{r}
+# Convert back to individuals, marked with matched country(s) and fill with citizenship
+collect_individuals <- function(cities_filled_df){
+  data_filled_df <- (
+    cities_filled_df
+    
+    # Smart collapse individuals
+    %>% group_by(pid)
+      %>% summarize(
+      imp_type = smart_collapse(imp_type),
+      imp_name = smart_collapse(imp_name),
+      imp_iso3 = smart_collapse(imp_iso3),
+      imp_birth_country = smart_collapse(imp_birth_country),
+      citizenship_1 = smart_collapse(citizenship_1),
+      citizenship_2 = smart_collapse(citizenship_2),
+      birth_country = smart_collapse(birth_country),
+      birth_city = smart_collapse(birth_city),
+      .groups = "drop"
+    )
+    
+    # Use citizenship (prioritize second)
+    %>% mutate(top_citizenship=as.character(coalesce(citizenship_2, citizenship_1)),
+               top_citizenship=case_when(top_citizenship=="0"~"000", .default=top_citizenship),
+               imp_birth_country=case_when(!is.na(imp_birth_country) ~ imp_birth_country, .default=top_citizenship),
+               imp_type=case_when(!is.na(imp_type) ~ imp_type, .default="top_citizenship")
+               )
+    
+    # labeled new imputed countries
+    %>% left_join(states_df, join_by(top_citizenship==bev_state))
+    %>% mutate(imp_name=coalesce(imp_name,name), imp_iso3=coalesce(imp_iso3,iso_3))
+    %>% rename(citizenship=name)
+    %>% select(pid,imp_type,birth_city,imp_name,imp_iso3,imp_birth_country,citizenship_1,citizenship_2,citizenship,birth_country)
+  )
+  
+  return(data_filled_df)
+}
+```
 
 ```{r}
-cities_filled_df <- (
-  data_df
-  %>% mutate(imp_birth_country=birth_country,
-             imp_type=ifelse(!is.na(birth_country), "given", NA))
-  
-  # German list matches
-  %>% left_join(deu_cities_df
-              %>% rename(birth_city=deu_city, imp_deu=imp_type)
-              , by="birth_city")
-  
-  # Ostgebeit matches
-  %>% left_join(ostgebiete_df, by="birth_city")
-  
-  # Parenthetical matches
-  %>% left_join(
-    states_df %>% select(bev_state, name)
-    %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
-    by = c("parenthetical" = "name")
-  )
-  # Cities with a country name
-  %>% left_join(
-    states_df %>% select(lit_state=bev_state, name)
-    %>% mutate(country_literal=TRUE)
-    %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
-    by = c("birth_city" = "name")
-  )
-  
-  # Internally assigned city-countries
-  %>% left_join(best_countries_df
-                %>% rename(city_birth_country=birth_country)
-                , by="birth_city")
+# Summarize working match
 
-  # Expanded German processing
-  %>% mutate(
-    base_city=clean_german_city(birth_city)
+summarize_matches <- function(matched_df){
+  working_city_match_df <- summarize_city_matches(matched_df)
+  working_person_matches_df <- summarize_person_matches(working_city_match_df)
+  plot_matches(working_person_matches_df)
+}
+
+# City matches
+summarize_city_matches <- function(matched_df){
+  working_city_match_df <- (
+    matched_df
+    # labeled imputed country
+    %>% left_join(states_df, join_by(imp_birth_country==bev_state)  )
+    %>% rename(imp_name=name, imp_iso3=iso_3)
+  )
+  
+  # # Check data head
+  # print(working_city_match_df 
+  #       %>% select(pid,imp_type,birth_city,imp_iso3,citizenship_1,citizenship_2,original_city)
+  #       %>% arrange(pid))
+  
+  # Count imp types
+  print(working_city_match_df 
+    %>% group_by(imp_type)
+    %>% summarize(records=n(), .groups="drop")
+    %>% arrange(desc(records))
+  )
+  
+  return(working_city_match_df)
+}
+
+# Record matches
+summarize_person_matches <- function(working_city_match_df){
+  working_person_matches_df <- collect_individuals(working_city_match_df)
+  print(working_person_matches_df
+        %>% group_by(imp_type,imp_iso3)
+        %>% summarize(records=n(), .groups="drop")
+        %>% arrange(desc(records))
+        )
+  return(working_person_matches_df)
+}
+
+# Visual summary
+plot_matches <- function(working_person_matches_df){
+  country_summary_df <- (
+    working_person_matches_df 
+    %>% group_by(imp_iso3)
+    %>% summarize(records=n(), .groups="drop")
+    %>% arrange(desc(records))
     )
-  %>% left_join(deu_base_cities_df
-              %>% rename(base_city=deu_city, imp_deu_expanded=imp_type)
-              , by="base_city")
+  print(country_summary_df)
+}
+```
 
-  # World cities matches
-  %>% left_join(world_cities_df, join_by(birth_city==name))
-  %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
-                %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
-                , join_by(iso3==iso_3))
-
-  # Citizenship-based cities
-  %>% left_join(best_citizens_df
-                %>% filter(total_city_records>1) # at 1, equivalent to top citizenship
-                , by="birth_city")
-
-  %>% mutate(imp_birth_country=case_when(
-               !is.na(imp_birth_country) ~ imp_birth_country, # given
-               !is.na(imp_deu) ~ "000", # german match
-               !is.na(bev_state) ~ bev_state, # parenthetical
-               country_literal ~ lit_state, # city is country
-               !is.na(ostgebiete) ~ ostgebiete,
-               !is.na(imp_deu_expanded) ~ "000", # german base
-               pct_country>=50 ~ city_birth_country,
-               !is.na(world_id) ~ world_id,
-               pct_citizen>=70 ~ citizenship
-               ),
-
-             imp_type=case_when(
-               !is.na(imp_type) ~ imp_type,
-               fuzzy & !is.na(imp_birth_country) ~ "fuzzy",
-               !is.na(imp_deu) ~ imp_deu,
-               !is.na(imp_deu_expanded) ~ "german_base",
-               !is.na(bev_state) ~ "country_literal", # parenthetical
-               country_literal ~ "country_literal", # city is country
-               !is.na(ostgebiete) ~ "ostgebiete",
-               pct_country==100 ~ "unique_city",
-               pct_country>=50 ~ "city_o50",
-               !is.na(world_id) ~ "world_list",
-               pct_citizen==100 ~ "unique_citizen",
-               pct_citizen>=70 ~ "citizen_o70"
-               )
-             )
+```{r}
+# Summarize unmatched records
+summarize_unmatched <- function(unmatched_df){
+  print(unmatched_df
+        %>% group_by()
+        %>% summarize(people=n_distinct(pid), cities=n(), .groups="drop")
+        )
+  print(unmatched_df
+        %>% group_by(birth_city)
+        %>% summarize(records = n(), .groups="drop")
+        %>% arrange(desc(records))
+        )
+}
+```
 
 
-  # labeled imputed country
-  %>% left_join(states_df, join_by(imp_birth_country==bev_state)  )
-  %>% rename(imp_name=name, imp_iso3=iso_3)
+## Stepwise imputation
+
+```{r}
+# Baseline
+matched_df <- (
+  data_df
+    %>% mutate(imp_birth_country=birth_country,
+               imp_type=ifelse(!is.na(birth_country), "given", NA))
+    %>% select(pid,imp_type,original_city,imp_birth_country,
+               citizenship_1,citizenship_2,birth_city,birth_country)
 )
-cities_filled_df
 
-data_filled_df <- (
-  cities_filled_df
-  # re-collect individual-level
-  %>% group_by(pid)
-    %>% summarize(
-    imp_type = smart_collapse(imp_type),
-    imp_name = smart_collapse(imp_name),
-    imp_iso3 = smart_collapse(imp_iso3),
-    imp_birth_country = smart_collapse(imp_birth_country),
-    citizenship_1 = smart_collapse(citizenship_1),
-    citizenship_2 = smart_collapse(citizenship_2),
-    birth_country = smart_collapse(birth_country),
-    birth_city = smart_collapse(birth_city),
-    .groups = "drop"
+unmatched_df <- matched_df %>% anti_join(matched_df %>% filter(!is.na(imp_type)), join_by(pid))
+
+summarize_matches(matched_df)
+summarize_unmatched(unmatched_df)
+```
+
+```{r}
+# Abstract the repetitive imputation steps
+apply_imputation <- function(impute_category){
+  matched_df <<- rbind(matched_df %>% filter(!is.na(imp_birth_country)),
+    unmatched_df
+    %>% impute_category()
+    %>% select(pid,imp_type,original_city,imp_birth_country,
+                 citizenship_1,citizenship_2,birth_city,birth_country)
   )
+  unmatched_df <<- matched_df %>% anti_join(matched_df %>% filter(!is.na(imp_type)), join_by(pid))
   
-  # Use citizenship (prioritize second)
-  %>% mutate(top_citizenship=as.character(coalesce(citizenship_2, citizenship_1)),
-             top_citizenship=case_when(top_citizenship=="0"~"000", .default=top_citizenship),
-             imp_birth_country=case_when(!is.na(imp_birth_country) ~ imp_birth_country, .default=top_citizenship),
-             imp_type=case_when(!is.na(imp_type) ~ imp_type, .default="top_citizenship")
-             )
-  
-  # labeled new imputed countries
-  %>% left_join(states_df, join_by(top_citizenship==bev_state))
-  %>% mutate(imp_name=coalesce(imp_name,name), imp_iso3=coalesce(imp_iso3,iso_3))
-  %>% rename(citizenship=name)
-  %>% select(pid,imp_type,birth_city,imp_name,imp_iso3,imp_birth_country,citizenship_1,citizenship_2,citizenship,birth_country)
-)
+  summarize_matches(matched_df)
+  summarize_unmatched(unmatched_df)
+}
+```
 
-data_filled_df
+```{r}
+# Option to undo a layer of matching
+unmatch_category <- function(category){
+  matched_df <<- (matched_df 
+    %>% mutate(
+      imp_birth_country=case_when(imp_type==category ~ NA, .default=imp_birth_country),
+      imp_type=case_when(imp_type==category ~ NA, .default=imp_type)
+    )
+    )
+  unmatched_df <<- matched_df %>% anti_join(matched_df %>% filter(!is.na(imp_type)), join_by(pid))
+}
+
+# unmatch_category("city_o50")
+# summarize_matches(matched_df)
+
+```
+
+
+```{r}
+# German reference list
+impute_german <- function(data_df){(
+    data_df
+    # Join reference list
+    %>% left_join(deu_cities_df
+                %>% rename(birth_city=deu_city, imp_deu=imp_type)
+                , by="birth_city")
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   !is.na(imp_deu) ~ "000", # german match
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   !is.na(imp_deu) ~ imp_deu)
+    )
+)}
+
+apply_imputation(impute_german)
+```
+
+```{r}
+# World Cities List
+impute_world <- function(data_df){(
+    data_df
+    # World cities matches
+    %>% left_join(world_cities_df, join_by(birth_city==name))
+    %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
+                  %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
+                  , join_by(iso3==iso_3))
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   !is.na(world_id) ~ world_id
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   !is.na(world_id) ~ "world_list")
+    )
+)}
+
+apply_imputation(impute_world)
+```
+
+```{r}
+# Ostgebeit matches
+impute_ost <- function(data_df){(
+    data_df
+    # Join reference list
+    %>% left_join(ostgebiete_df, by="birth_city")
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   !is.na(ostgebiete) ~ ostgebiete
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   !is.na(ostgebiete) ~ "ostgebiete")
+    )
+)}
+
+apply_imputation(impute_ost)
+```
+
+```{r}
+# Parseable countries
+impute_literal <- function(data_df){(
+    data_df
+      # Parenthetical matches
+    %>% left_join(parentheticals_df, join_by(pid))
+      %>% left_join(
+        states_df %>% select(bev_state, name)
+        %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+        by = c("parenthetical" = "name")
+      )
+      # Cities that are a country name
+      %>% left_join(
+        states_df %>% select(lit_state=bev_state, name)
+        %>% mutate(country_literal=TRUE)
+        %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+        by = c("birth_city" = "name")
+      )
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   !is.na(bev_state) ~ bev_state, # parenthetical
+                   country_literal ~ lit_state, # city is country
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   !is.na(bev_state) ~ "country_literal", # parenthetical
+                   country_literal ~ "country_literal" # city is country
+               )
+    )
+)}
+
+apply_imputation(impute_literal)
+```
+
+```{r}
+# Internally assigned city-countries
+impute_nm_country <- function(data_df){(
+    data_df
+    # Join reference list
+    %>% left_join(best_countries_df
+                    %>% rename(city_birth_country=birth_country)
+                    , by="birth_city")
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   pct_country>=50 ~ city_birth_country
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   pct_country==100 ~ "unique_city",
+                   pct_country>=50 ~ "city_o50"
+                   
+                   )
+    )
+)}
+
+apply_imputation(impute_nm_country)
+```
+
+```{r}
+# Expanded German processing
+impute_german_base <- function(data_df){(
+    data_df
+    # Strip German details
+    %>% mutate(
+      base_city=clean_german_city(birth_city)
+      )
+    # Base German reference list
+    %>% left_join(deu_base_cities_df
+                %>% rename(base_city=deu_city, imp_deu_expanded=imp_type)
+                , by="base_city")
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   !is.na(imp_deu_expanded) ~ "000" # german base
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   !is.na(imp_deu_expanded) ~ "german_base")
+    )
+)}
+
+apply_imputation(impute_german_base)
+
+
+```
+
+
+```{r}
+# Citizenship-based cities
+impute_citizens <- function(data_df){(
+    data_df
+    # Join reference list
+    %>% left_join(best_citizens_df
+                  %>% filter(total_city_records>1) # at 1, equivalent to top citizenship
+                  , by="birth_city")
+    # Mark new imputations
+    %>% mutate(imp_birth_country=case_when(
+                   !is.na(imp_birth_country) ~ imp_birth_country,
+                   pct_citizen>=70 ~ citizenship
+                   ),
+               imp_type=case_when(
+                   !is.na(imp_type) ~ imp_type,
+                   pct_citizen==100 ~ "unique_citizen",
+                  pct_citizen>=70 ~ "citizen_o70")
+    )
+)}
+
+apply_imputation(impute_citizens)
+  
+```
+
+
+
+
+## Full imputation
+
+Note: running everything at once is less flexible, quicker, and flags individuals assigned to multiple categories due to the "/" parsing. 
+
+```{r}
+# Run each imputation method and mark sources
+match_cities <- function(data_df){
+  cities_filled_df <- (
+    data_df
+    %>% mutate(imp_birth_country=birth_country,
+               imp_type=ifelse(!is.na(birth_country), "given", NA))
+    
+    # German list matches
+    %>% left_join(deu_cities_df
+                %>% rename(birth_city=deu_city, imp_deu=imp_type)
+                , by="birth_city")
+    
+    # Ostgebeit matches
+    %>% left_join(ostgebiete_df, by="birth_city")
+    
+    # Parenthetical matches
+    %>% left_join(
+      states_df %>% select(bev_state, name)
+      %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+      by = c("parenthetical" = "name")
+    )
+    # Cities with a country name
+    %>% left_join(
+      states_df %>% select(lit_state=bev_state, name)
+      %>% mutate(country_literal=TRUE)
+      %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
+      by = c("birth_city" = "name")
+    )
+    
+    # Internally assigned city-countries
+    %>% left_join(best_countries_df
+                  %>% rename(city_birth_country=birth_country)
+                  , by="birth_city")
+  
+    # Expanded German processing
+    %>% mutate(
+      base_city=clean_german_city(birth_city)
+      )
+    %>% left_join(deu_base_cities_df
+                %>% rename(base_city=deu_city, imp_deu_expanded=imp_type)
+                , by="base_city")
+  
+    # World cities matches
+    %>% left_join(world_cities_df, join_by(birth_city==name))
+    %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
+                  %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
+                  , join_by(iso3==iso_3))
+  
+    # Citizenship-based cities
+    %>% left_join(best_citizens_df
+                  %>% filter(total_city_records>1) # at 1, equivalent to top citizenship
+                  , by="birth_city")
+  
+    %>% mutate(imp_birth_country=case_when(
+                 !is.na(imp_birth_country) ~ imp_birth_country, # given
+                 !is.na(imp_deu) ~ "000", # german match
+                 !is.na(bev_state) ~ bev_state, # parenthetical
+                 country_literal ~ lit_state, # city is country
+                 !is.na(ostgebiete) ~ ostgebiete,
+                 !is.na(imp_deu_expanded) ~ "000", # german base
+                 pct_country>=50 ~ city_birth_country,
+                 !is.na(world_id) ~ world_id,
+                 pct_citizen>=70 ~ citizenship
+                 ),
+  
+               imp_type=case_when(
+                 !is.na(imp_type) ~ imp_type,
+                 fuzzy & !is.na(imp_birth_country) ~ "fuzzy",
+                 !is.na(imp_deu) ~ imp_deu,
+                 !is.na(imp_deu_expanded) ~ "german_base",
+                 !is.na(bev_state) ~ "country_literal", # parenthetical
+                 country_literal ~ "country_literal", # city is country
+                 !is.na(ostgebiete) ~ "ostgebiete",
+                 pct_country==100 ~ "unique_city",
+                 pct_country>=50 ~ "city_o50",
+                 !is.na(world_id) ~ "world_list",
+                 pct_citizen==100 ~ "unique_citizen",
+                 pct_citizen>=70 ~ "citizen_o70"
+                 )
+               )
+    
+    # labeled imputed country
+    %>% left_join(states_df, join_by(imp_birth_country==bev_state)  )
+    %>% rename(imp_name=name, imp_iso3=iso_3)
+  )
+  return(cities_filled_df)
+}
+```
+
+```{r}
+cities_filled_df <- match_cities(data_df)
+data_filled_df <- collect_individuals(cities_filled_df)
+```
+
+
+```{r}
 
 print(data_filled_df 
       %>% group_by(imp_type) 
@@ -529,7 +891,7 @@ print(cities_filled_df
 # Fuzzy match unindentified cities
 fuzzy_candidates <- (
   cities_filled_df 
-  %>% filter(imp_type %in% c("fuzzy","top_citizenship"))
+  %>% filter(imp_type=="top_citizenship" | birth_city!=original_city)
   %>% select(birth_city) %>% distinct()
   %>% rowwise()
   %>% mutate(
