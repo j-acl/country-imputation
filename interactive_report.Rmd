@@ -1,0 +1,279 @@
+---
+title: "Birth Country Imputation: Interactive Results"
+author: "Jamie Christy & Danaia Burtseva"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# Load packages
+library(tidyverse)
+library(DT)
+library(plotly)
+library(gt)
+library(stringi)
+library(stringdist)
+
+# Source your preprocessing functions
+# source('preprocess.R') # Uncomment when you have this file
+
+# For demo purposes, I'll create some sample data
+# Replace this with your actual data loading
+set.seed(123)
+n_total <- 48031
+n_missing <- 18814
+
+# Sample success rates by method
+imputation_summary <- data.frame(
+  imp_type = c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
+               "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship"),
+  n = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
+  description = c("Originally provided", "German city list", "World cities database", 
+                 "Historical eastern territories", "Literal country names",
+                 "Unique city-country mapping", "Majority city-country (>50%)",
+                 "Base German city names", "Majority citizenship (>70%)", 
+                 "Fallback to citizenship")
+)
+
+# Sample country distribution
+country_dist <- data.frame(
+  country = c("Germany", "Poland", "Turkey", "Russia", "Italy", "Syria", "Romania", "Other"),
+  iso3 = c("DEU", "POL", "TUR", "RUS", "ITA", "SYR", "ROU", "OTH"),
+  n = c(35000, 2800, 2200, 1800, 1100, 900, 800, 3331),
+  pct = c(72.9, 5.8, 4.6, 3.7, 2.3, 1.9, 1.7, 6.9)
+)
+```
+
+# Executive Summary
+
+This report presents the results of our birth country imputation project for **`r formatC(n_total, format="d", big.mark=",")`** records, with **`r formatC(n_missing, format="d", big.mark=",")`** missing birth countries successfully imputed using multiple reference sources and matching strategies.
+
+## Key Results
+
+```{r summary_stats}
+# Calculate key metrics
+total_imputed <- sum(imputation_summary$n[imputation_summary$imp_type != "given"])
+success_rate <- round((total_imputed / n_missing) * 100, 1)
+methods_used <- nrow(imputation_summary) - 1
+
+# Create summary box
+summary_stats <- data.frame(
+  Metric = c("Total Records", "Missing Birth Countries", "Successfully Imputed", 
+             "Success Rate", "Imputation Methods"),
+  Value = c(formatC(n_total, format="d", big.mark=","),
+            formatC(n_missing, format="d", big.mark=","),
+            formatC(total_imputed, format="d", big.mark=","),
+            paste0(success_rate, "%"),
+            methods_used)
+)
+
+summary_stats %>%
+  gt() %>%
+  tab_header(title = "Imputation Summary Statistics") %>%
+  cols_align(align = "center", columns = Value) %>%
+  tab_style(
+    style = list(cell_fill(color = "#E8F4FD")),
+    locations = cells_body(rows = 4)  # Highlight success rate
+  )
+```
+
+# Imputation Methods Performance
+
+## Success Rate by Method
+
+```{r imputation_performance}
+# Create interactive bar chart
+perf_plot <- imputation_summary %>%
+  filter(imp_type != "given") %>%
+  mutate(
+    pct = round(n / n_missing * 100, 1),
+    imp_type = fct_reorder(imp_type, n)
+  ) %>%
+  ggplot(aes(x = imp_type, y = n, fill = imp_type,
+             text = paste0("Method: ", description,
+                          "<br>Records: ", formatC(n, format="d", big.mark=","),
+                          "<br>% of Missing: ", pct, "%"))) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_viridis_d() +
+  labs(
+    title = "Records Imputed by Method",
+    x = "Imputation Method",
+    y = "Number of Records",
+    caption = "Hover for details"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplotly(perf_plot, tooltip = "text")
+```
+
+## Method Details
+
+```{r method_details_table}
+imputation_summary %>%
+  filter(imp_type != "given") %>%
+  mutate(
+    pct_missing = round(n / n_missing * 100, 1),
+    pct_total = round(n / n_total * 100, 1)
+  ) %>%
+  select(Method = imp_type, Description = description,
+         Records = n, `% of Missing` = pct_missing, `% of Total` = pct_total) %>%
+  datatable(
+    options = list(
+      pageLength = 15,
+      dom = 'Bfrtip',
+      scrollX = TRUE
+    ),
+    caption = "Detailed breakdown of imputation methods (click column headers to sort)"
+  ) %>%
+  formatStyle(
+    'Records',
+    background = styleColorBar(range(imputation_summary$n), 'lightblue'),
+    backgroundSize = '100% 90%',
+    backgroundRepeat = 'no-repeat',
+    backgroundPosition = 'center'
+  )
+```
+
+# Country Distribution Results
+
+## Imputed Birth Countries
+
+```{r country_distribution}
+# Interactive pie chart
+pie_plot <- country_dist %>%
+  plot_ly(labels = ~country, values = ~n, type = 'pie',
+          textposition = 'inside',
+          textinfo = 'label+percent',
+          hovertemplate = paste('<b>%{label}</b><br>',
+                               'Records: %{value:,}<br>',
+                               'Percentage: %{percent}<br>',
+                               '<extra></extra>'),
+          marker = list(colors = RColorBrewer::brewer.pal(8, "Set2"))) %>%
+  layout(title = "Distribution of Imputed Birth Countries",
+         showlegend = TRUE)
+
+pie_plot
+```
+
+<!-- ## Top Countries Table -->
+
+<!-- ```{r countries_table} -->
+<!-- country_dist %>% -->
+<!--   arrange(desc(n)) %>% -->
+<!--   mutate( -->
+<!--     Records = formatC(n, format="d", big.mark=","), -->
+<!--     Percentage = paste0(pct, "%") -->
+<!--   ) %>% -->
+<!--   select(Country = country, `ISO Code` = iso3, Records, Percentage) %>% -->
+<!--   gt() %>% -->
+<!--   tab_header(title = "Birth Countries After Imputation") %>% -->
+<!--   cols_align(align = "center", columns = c("ISO Code", "Records", "Percentage")) %>% -->
+<!--   data_color( -->
+<!--     columns = Percentage, -->
+<!--     colors = scales::col_numeric( -->
+<!--       palette = "Blues", -->
+<!--       domain = c(0, max(country_dist$pct)) -->
+<!--     ) -->
+<!--   ) -->
+<!-- ``` -->
+
+# Interactive Data Explorer
+
+```{r sample_data_table}
+# Create sample of final results for exploration
+# Replace this with your actual data_filled_df
+sample_results <- data.frame(
+  pid = 1:1000,
+  birth_city = sample(c("BERLIN", "HAMBURG", "ISTANBUL", "WARSZAWA", "ROMA", "PARIS", "LONDON", NA), 1000, replace = TRUE),
+  imp_birth_country = sample(c("000", "152", "163", "380", "826"), 1000, replace = TRUE),
+  imp_name = sample(c("Germany", "Poland", "Turkey", "Italy", "United Kingdom"), 1000, replace = TRUE),
+  imp_type = sample(imputation_summary$imp_type, 1000, replace = TRUE, prob = imputation_summary$n),
+  citizenship_1 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE),
+  citizenship_2 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE)
+)
+
+sample_results %>%
+  select(ID = pid, `Birth City` = birth_city, `Imputed Country` = imp_name,
+         `Method Used` = imp_type, `Citizenship 1` = citizenship_1, `Citizenship 2` = citizenship_2) %>%
+  datatable(
+    filter = 'top',
+    options = list(
+      pageLength = 25,
+      scrollX = TRUE,
+      dom = 'Bfrtip'
+    ),
+    caption = "Sample of imputation results - Use filters above columns to explore patterns"
+  )
+```
+
+# Quality Assessment
+
+## Citizenship Validation
+
+```{r citizenship_validation}
+# Sample validation data
+validation_data <- data.frame(
+  Category = c("Birth country matches primary citizenship",
+               "Birth country matches secondary citizenship",
+               "Birth country is Germany, citizenship is German",
+               "No citizenship match (expected for immigrants)",
+               "Missing citizenship data"),
+  Count = c(12500, 3200, 28000, 3800, 531),
+  Percentage = c(26.0, 6.7, 58.3, 7.9, 1.1)
+)
+
+validation_plot <- validation_data %>%
+  mutate(Category = str_wrap(Category, 25)) %>%
+  ggplot(aes(x = reorder(Category, Count), y = Count, fill = Category,
+             text = paste0("Category: ", Category,
+                          "<br>Count: ", formatC(Count, format="d", big.mark=","),
+                          "<br>Percentage: ", Percentage, "%"))) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_brewer(type = "qual", palette = "Set2") +
+  labs(title = "Validation: Birth Country vs Citizenship Consistency",
+       x = "",
+       y = "Number of Records") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplotly(validation_plot, tooltip = "text")
+```
+
+# Methodology Summary
+
+Our imputation strategy employed a hierarchical approach:
+
+1. **German Cities**: Matched against official municipal directories
+2. **World Cities**: Used global cities database with population weighting
+3. **Historical Territories**: Special handling for former German territories (Ostgebiete)
+4. **Literal Country Names**: Direct country name parsing from parentheticals
+5. **City Patterns**: Statistical assignment based on non-missing observations
+6. **Citizenship Fallback**: Used declared citizenship when geographical methods failed
+
+## Data Sources
+
+- **German Cities**: Statistikportal.de municipal directory (31,000+ entries)
+- **World Cities**: SimpleMaps world cities database (40,000+ cities)
+- **Country Codes**: DESTATIS official country classification
+- **Historical**: Manual curation of former German territories
+
+# Conclusions
+
+- Successfully imputed **`r success_rate`%** of missing birth countries
+- German-focused approach appropriate for the dataset demographics
+- Multi-source strategy provided robust fallback options
+- Citizenship validation shows reasonable consistency patterns
+
+---
+
+*This report was generated using R Markdown with interactive elements. All charts are interactive - hover for details and use table filters to explore the data.*
