@@ -743,6 +743,12 @@ match_cities <- function(data_df){
       %>% mutate(name = name %>% stri_trans_general("Latin-ASCII") %>% toupper()),
       by = c("birth_city" = "name")
     )
+  
+    # World cities matches
+    %>% left_join(world_cities_df, join_by(birth_city==name))
+    %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
+                  %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
+                  , join_by(iso3==iso_3))
     
     # Internally assigned city-countries
     %>% left_join(best_countries_df
@@ -757,12 +763,6 @@ match_cities <- function(data_df){
                 %>% rename(base_city=deu_city, imp_deu_expanded=imp_type)
                 , by="base_city")
   
-    # World cities matches
-    %>% left_join(world_cities_df, join_by(birth_city==name))
-    %>% left_join(states_df %>% select(world_id=bev_state,iso_3) %>% distinct() 
-                  %>% filter(!(world_id %in% c(133, 276))) # Exclude older codes
-                  , join_by(iso3==iso_3))
-  
     # Citizenship-based cities
     %>% left_join(best_citizens_df
                   %>% filter(total_city_records>1) # at 1, equivalent to top citizenship
@@ -774,9 +774,9 @@ match_cities <- function(data_df){
                  !is.na(bev_state) ~ bev_state, # parenthetical
                  country_literal ~ lit_state, # city is country
                  !is.na(ostgebiete) ~ ostgebiete,
+                 !is.na(world_id) ~ world_id,
                  !is.na(imp_deu_expanded) ~ "000", # german base
                  pct_country>=50 ~ city_birth_country,
-                 !is.na(world_id) ~ world_id,
                  pct_citizen>=70 ~ citizenship
                  ),
   
