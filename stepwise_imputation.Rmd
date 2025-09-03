@@ -48,7 +48,7 @@ Your solution should include:
 - clean code for production
   
 - improve matching
-  - http://www.kartenmeister.com/preview/databaseUwe.asp fix postwar territory changes
+  - https://ehemalige-ostgebiete.de/en systematic ostgebiete
   - transitive property
   - add NRW and RP databases for smaller cities
   - international list by distance
@@ -252,18 +252,27 @@ world_cities_df
 ```{r}
 ostgebiete_df <-rbind(data.frame(
   # Poland
-  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG","PR. EYLAU"),
+  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG","PYRITZ", "STREHLEN", "ANGERBURG", "LAUBAN", "SCHLOCHAU", "BUNZLAU"),
   ostgebiete = "152"
 ),data.frame(
-  # Kaliningrad
-  birth_city = c("GERDAUEN", "SAMLAND","GUMBINNEN"),
+  # Russia
+  birth_city = c("GERDAUEN", "SAMLAND","GUMBINNEN","INSTERBURG","PR. EYLAU","WEHLAU","HEILIGENBEIL", "PREUSSISCH EYLAU", "ELCHNIEDERUNG", "FISCHHAUSEN", "ANGERAPP"),
   ostgebiete = "160"
 ),data.frame(
   # Lithuania
   birth_city = c("HEYDEKRUG"),
   ostgebiete = "142"
+),data.frame(
+  # Germany
+  birth_city = c("WESERMUNDE", "RUPPIN", "EISLEBEN"),
+  ostgebiete = "000" # kind of cheating
+),data.frame(
+  # Kosovo
+  birth_city = c("PRISHTINA"),
+  ostgebiete = "150" # definitely cheating
 )
 )
+
 ostgebiete_df
 ```
 
@@ -367,14 +376,11 @@ collect_individuals <- function(cities_filled_df){
     cities_filled_df
     
     # Smart collapse individuals
-    %>% group_by(pid)
+    %>% group_by(pid, citizenship_1, citizenship_2)
       %>% summarize(
       imp_type = smart_collapse(imp_type),
       imp_name = smart_collapse(imp_name),
       imp_iso3 = smart_collapse(imp_iso3),
-      imp_birth_country = smart_collapse(imp_birth_country),
-      citizenship_1 = smart_collapse(citizenship_1),
-      citizenship_2 = smart_collapse(citizenship_2),
       birth_country = smart_collapse(birth_country),
       birth_city = smart_collapse(birth_city),
       .groups = "drop"
@@ -585,6 +591,7 @@ impute_ost <- function(data_df){(
 )}
 
 apply_imputation(impute_ost)
+
 ```
 
 ```{r}
