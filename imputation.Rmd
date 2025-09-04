@@ -649,3 +649,163 @@ print(cities_filled_df
 ```
 
 
+
+
+
+
+```{r}
+# Get the first non-missing birth city
+# Select rows with multiple countries and extract the first city
+first_cities <- data_filled_df %>%
+  filter(str_detect(imp_birth_country, "/")) %>%
+  
+  # Split birth_city on "/" into up to 4 parts
+  separate(birth_city,
+           into = c("city_1", "city_2", "city_3", "city_4"),
+           sep = "/", fill = "right", extra = "merge") %>%
+  
+  select(pid, city_1, city_2, city_3, city_4, imp_birth_country, imp_type)
+
+first_cities
+
+
+```
+
+
+
+
+```{r}
+# Join first_cities with world_cities_df to get the country
+first_cities_with_country <- first_cities %>%
+  left_join(world_cities_df, by = c("city_1" = "name"))
+
+first_cities_with_country
+
+# Kreis Osterode in Ostpreußen
+```
+
+
+
+
+
+
+```{r}
+
+#  Wikipedia
+url_pol <- "https://en.wikipedia.org/wiki/List_of_German_names_for_places_in_Poland"
+
+# html
+page <- read_html(url_pol)
+
+# all tables
+tables <- page %>% html_table(fill = TRUE)
+
+# table 2
+german_names_in_Poland <- tables[[2]] %>%
+  as.data.frame() %>%
+  rename(
+    Polish_name = 1,
+    German_name = 5
+  ) %>%
+  # filter(!is.na(German_name) & German_name != "") %>%
+  mutate(Country = "Poland")
+
+german_names_in_Poland<- german_names_in_Poland %>%
+  mutate(
+    Polish_name_clean = Polish_name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>%  
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      stri_trans_general("Latin-ASCII") %>%          #  (ł → l, ś → s и т.п.)
+      toupper() %>%                                  #
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% # заменить формы "JETZT" → "/"
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # KRS/KREIS → "/"
+      # str_replace_all(" / ", "/")                  # при желании убрать пробелы вокруг "/"
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") # убрать хвосты типа "Ortsteil ..."
+  )
+
+
+german_names_in_Poland<- german_names_in_Poland %>%
+  mutate(
+    German_name_clean = German_name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>% 
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      stri_trans_general("Latin-ASCII") %>%          #  (ł → l, ś → s и т.п.)
+      toupper() %>%                                  #
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% # заменить формы "JETZT" → "/"
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # KRS/KREIS → "/"
+      # str_replace_all(" / ", "/")                  # при желании убрать пробелы вокруг "/"
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") # убрать хвосты типа "Ortsteil ..."
+  )
+
+
+
+
+```
+
+
+````{r}
+
+german_names_in_Poland_no_unique <-german_names_in_Poland%>%
+  group_by(German_name_clean) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
+  arrange(desc(n))
+````
+
+````{r}
+
+HOHENSTEIN <- inner_join(
+  first_cities_with_country,
+  german_names_in_Poland_no_unique,
+  by = c("city_1" = "German_name_clean")
+)
+
+HOHENSTEIN
+# HOHENSTEIN
+# OSTERODE
+````
+
+
+
+```{r}
+remove_list <- german_names_in_Poland_no_unique$German_name_clean[
+  !(german_names_in_Poland_no_unique$German_name_clean %in% c("HOHENSTEIN"))
+]
+
+```
+
+
+```{r}
+
+german_names_in_Poland <- german_names_in_Poland %>%
+  filter(!German_name_clean %in% remove_list)
+
+german_names_in_Poland <- german_names_in_Poland %>%
+  filter(!(German_name_clean == "HOHENSTEIN" & Polish_name_clean == "PSZCZOLKI"))
+
+write_csv(german_names_in_Poland, "german_names_in_Poland.csv")
+```
+
+````{r}
+
+poland <- left_join(
+  first_cities_with_country,
+  german_names_in_Poland,
+  by = c("city_1" = "German_name_clean")
+)
+
+poland%>%
+  filter (!is.na(German_name))%>%
+  group_by(German_name)%>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n >1) %>%
+  arrange(desc(n))
+
+
+
+````
+
+
+
