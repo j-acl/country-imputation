@@ -1,6 +1,6 @@
 ---
 title: "Birth Country Imputation"
-author: "Jamie Christy & Dana Burtseva"
+author: "Jamie Christy & Danaia Burtseva"
 date: "2025-06-14"
 output: html_document
 ---
@@ -13,6 +13,10 @@ library(tidyverse)
 library(stringi) # for character standardization
 library(stringdist) # for fuzzy matching
 source('preprocess.R') # read/write external data
+library(stringr)
+library(readr)
+library(rvest)
+library(xml2)
 ```
 
 # Topic 9: Birth Country Encryption
@@ -1017,4 +1021,392 @@ print(cities_filled_df
 # prioritize in same hierarchy as imputation
 ```
 
+
+
+#  Handle multiple birth countries/cities
+```{r}
+multiple_cities <- data_filled_df %>%
+  filter(str_detect(imp_birth_country, "/")) %>%
+  separate(
+    birth_city,
+    into = c("city_1", "city_2", "city_3", "city_4"),
+    sep = "/", fill = "right", extra = "merge"
+  ) %>%
+  select(pid, city_1, city_2, city_3, city_4, imp_birth_country, imp_type)
+```
+
+
+
+# Join with world cities to get countries
+```{r}
+
+multiple_cities%>%
+	group_by(imp_birth_country)%>%
+	summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
+  arrange(desc(n))
+
+
+```
+
+
+# 3. Assign known historical cities ostgebiet (Poland and Russia)
+```{r}
+# Make lookup: German_name_clean → ostgebiete
+ost_lookup <- setNames(ostgebiete_df$ostgebiete, ostgebiete_df$birth_city)
+
+multiple_cities <- multiple_cities %>%
+  mutate(
+    city_1_country = ost_lookup[city_1],
+    city_2_country = ost_lookup[city_2],
+    city_3_country = ost_lookup[city_3],
+    city_4_country = ost_lookup[city_4]
+  )
+```
+
+
+```{r}
+# Function to resolve countries
+resolve_exonym_country <- function(...) {
+  vals <- na.omit(c(...))       # collect non-NA values
+  if (length(vals) == 0) {
+    return(NA_character_)
+  } else if (length(unique(vals)) == 1) {
+    return(unique(vals))        # single unique value
+  } else {
+    return("ambiguous")         # conflicting
+  }
+}
+
+# Apply function rowwise
+multiple_cities <- multiple_cities %>%
+  rowwise() %>%
+  mutate(
+    exonym_country = resolve_exonym_country(
+      city_1_country, city_2_country, city_3_country, city_4_country
+    )
+  ) %>%
+  ungroup()
+
+
+multiple_cities%>%
+  filter(is.na(exonym_country))%>%
+	group_by(imp_birth_country)%>%
+	summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
+  arrange(desc(n))
+```
+
+
+
+
+
+# 5. Scrape German exonyms for Poland from Wikipedia
+
+```{r}
+multiple_cities_poland<-multiple_cities%>%
+  filter(is.na(exonym_country))%>%
+  filter(imp_birth_country=="000/152")
+
+multiple_cities_poland
+```
+
+
+```{r}
+
+
+#  Wikipedia
+url_pol <- "https://en.wikipedia.org/wiki/List_of_German_names_for_places_in_Poland"
+
+
+# html
+page <- read_html(url_pol)
+
+# all tables
+tables <- page %>% html_table(fill = TRUE)
+
+# table 2
+german_names_in_Poland <- tables[[2]] %>%
+  as.data.frame() %>%
+  rename(
+    Polish_name = 1,
+    German_name = 5
+  ) %>%
+  # filter(!is.na(German_name) & German_name != "") %>%
+  mutate(Poland = "152")
+
+german_names_in_Poland<- german_names_in_Poland %>%
+  mutate(
+    Polish_name_clean = Polish_name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>%  
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      stri_trans_general("Latin-ASCII") %>%          #  (ł → l, ś → s и т.п.)
+      toupper() %>%                                  #
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% # заменить формы "JETZT" → "/"
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # KRS/KREIS → "/"
+      # str_replace_all(" / ", "/")                  # при желании убрать пробелы вокруг "/"
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") # убрать хвосты типа "Ortsteil ..."
+  )
+
+
+german_names_in_Poland<- german_names_in_Poland %>%
+  mutate(
+    German_name_clean = German_name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>% 
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      stri_trans_general("Latin-ASCII") %>%          #  (ł → l, ś → s и т.п.)
+      toupper() %>%                                  #
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% #  "JETZT" → "/"
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # KRS/KREIS → "/"
+      # str_replace_all(" / ", "/")                  #  "/"
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") #  "Ortsteil ..."
+  )
+
+
+german_names_in_Poland_no_unique <-german_names_in_Poland%>%
+  group_by(German_name_clean) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
+  arrange(desc(n))
+
+
+
+
+HOHENSTEIN <- inner_join(
+  multiple_cities_poland,
+  german_names_in_Poland_no_unique,
+  by = c("city_1" = "German_name_clean")
+)
+
+# HOHENSTEIN
+# HOHENSTEIN
+# OSTERODE
+```
+
+
+
+```{r}
+remove_list <- german_names_in_Poland_no_unique$German_name_clean[
+  !(german_names_in_Poland_no_unique$German_name_clean %in% c("HOHENSTEIN"))
+]
+
+```
+
+
+```{r}
+
+german_names_in_Poland <- german_names_in_Poland %>%
+  filter(!German_name_clean %in% remove_list)
+
+german_names_in_Poland <- german_names_in_Poland %>%
+  filter(!(German_name_clean == "HOHENSTEIN" & Polish_name_clean == "PSZCZOLKI"))
+
+write_csv(german_names_in_Poland, "german_names_in_Poland.csv")
+
+```
+
+
+```{r}
+# Make lookup: German_name_clean → ostgebiete
+
+
+
+pol_lookup <- setNames(german_names_in_Poland$Poland, german_names_in_Poland$German_name_clean)
+
+multiple_cities_poland <- multiple_cities %>%
+  mutate(
+    city_1_country = pol_lookup[city_1],
+    city_2_country = pol_lookup[city_2],
+    city_3_country = pol_lookup[city_3],
+    city_4_country = pol_lookup[city_4]
+  )
+
+multiple_cities_poland 
+# Apply function rowwise
+multiple_cities_poland <- multiple_cities_poland %>%
+  rowwise() %>%
+  mutate(
+    exonym_country = resolve_exonym_country(
+      city_1_country, city_2_country, city_3_country, city_4_country
+    )
+  ) %>%
+  ungroup()
+
+multiple_cities_poland_small <- multiple_cities_poland %>%
+  select(pid, exonym_country)
+
+multiple_cities_poland%>%
+  filter(is.na(exonym_country))
+
+```
+
+
+
+```{r}
+
+# Create URLs
+urls <- c("https://de.wikipedia.org/wiki/Liste_der_Städte_in_der_Woiwodschaft_Ermland-Masuren",
+
+"https://de.wikipedia.org/wiki/Liste_der_Städte_in_der_Woiwodschaft_Lebus",
+"https://de.wikipedia.org/wiki/Liste_der_Städte_in_der_Woiwodschaft_Niederschlesien",
+"https://de.wikipedia.org/wiki/Woiwodschaft_Westpommern",
+"https://de.wikipedia.org/wiki/Woiwodschaft_Opole",
+"https://de.wikipedia.org/wiki/Woiwodschaft_Schlesien")
+
+# Print the URLs
+print(urls)
+
+
+
+# Initialize list to store tables
+all_tables <- list()
+
+# Loop over URLs
+for (u in urls) {
+  page <- read_html(u)
+  tables <- page %>% html_table(fill = TRUE)
+  all_tables[[u]] <- tables
+}
+
+
+ostpruss<-list(
+
+all_tables[[1]][[2]]%>%
+  select(Stadt, `Deutscher Name`),
+
+all_tables[[2]][[2]]%>%
+  select(Stadt, `Deutscher Name`),
+
+all_tables[[3]][[2]]%>%
+  select(Stadt, `Deutscher Name`),
+
+all_tables[[4]][[5]]%>%
+  select(Stadt, `Deutscher Name`),
+
+all_tables[[5]][[5]]%>%
+  select(Stadt, `Deutscher Name`),
+
+all_tables[[6]][[5]]%>%
+  select(Stadt, `Deutscher Name`)
+)
+
+ostpruss_df <- bind_rows(ostpruss)
+
+# Apply the cleaning function to the "Deutscher Name" column
+
+```
+
+
+
+````{r}
+ostpruss_df <- ostpruss_df %>%
+  mutate(`German_name_cleaned` = `Deutscher Name` %>%
+           str_remove(",.*$") %>%                    # remove comma and everything after
+           str_remove_all("[´]") %>%                 # remove accent marks
+           str_remove_all("\\s+in Ostpreußen") %>% 
+           str_remove_all("\\[[a-zA-Z]\\]") %>%     # remove [g], [h] etc.
+           stri_trans_general("Latin-ASCII") %>%    # convert ł → l, ś → s etc.
+           toupper() %>%                             # uppercase all letters
+           str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>%  # replace "JETZT" variations with "/"
+           str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # replace KRS/KREIS with "/"
+           str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$")         # remove "Ortsteil ..." and similar
+         )
+
+
+ostpruss_df <- ostpruss_df %>%
+  mutate(`Polish_name_cleaned` = `Stadt` %>%
+           str_remove(",.*$") %>%                    # remove comma and everything after
+           str_remove_all("[*´]") %>%                 # remove accent marks
+           str_remove_all("\\s+IN OSTPREUSSEN") %>%  # remove "IN OSTPREUSSEN"
+           str_remove_all("\\[[a-zA-Z]\\]") %>%     # remove [g], [h] etc.
+           stri_trans_general("Latin-ASCII") %>%    # convert ł → l, ś → s etc.
+           toupper() %>%                             # uppercase all letters
+           str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>%  # replace "JETZT" variations with "/"
+           str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # replace KRS/KREIS with "/"
+           str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$")         # remove "Ortsteil ..." and similar
+         )
+
+ostpruss_df <- ostpruss_df %>%
+  filter(`German_name_cleaned` != "FREYSTADT") %>%
+  mutate(`Polish country` = "152")
+
+
+
+````
+
+
+# 7. Build exonym reference table
+```{r}
+
+
+pol_lookup_0 <- setNames(
+  ostpruss_df$`Polish country`,
+  ostpruss_df$German_name_cleaned
+)
+
+multiple_cities_poland_0 <- multiple_cities_poland %>%
+  filter(is.na(exonym_country)) %>%
+  mutate(
+    city_1_country_0 = pol_lookup_0[city_1],
+    city_2_country_0 = pol_lookup_0[city_2],
+    city_3_country_0 = pol_lookup_0[city_3],
+    city_4_country_0 = pol_lookup_0[city_4]
+  ) %>%
+  rowwise() %>%
+  mutate(
+    exonym_country_0 = resolve_exonym_country(
+      city_1_country_0, city_2_country_0, city_3_country_0, city_4_country_0
+    )
+  ) %>%
+  ungroup()
+
+multiple_cities_poland_0_small <- multiple_cities_poland_0 %>%
+  select(pid, exonym_country_0)
+# 
+# multiple_cities_poland_0_small
+# multiple_cities_poland_0%>%
+#   filter(is.na(exonym_country))
+# 
+# multiple_cities_poland%>%
+#   filter(is.na(exonym_country))
+
+```
+
+
+
+
+
+# 8. Impute exonym country back into main dataset
+```{r}
+
+multiple_cities<-left_join(multiple_cities,multiple_cities_poland_small,
+  multiple_cities_poland_0_small,
+  by = "pid"
+)
+
+multiple_cities
+```
+
+
+```{r}
+
+
+# Apply function rowwise
+multiple_cities <- multiple_cities %>%
+  rowwise() %>%
+  mutate(
+    modern_birth_country = resolve_exonym_country(
+      exonym_country.x, exonym_country.y, exonym_country
+    )
+  ) %>%
+  ungroup()
+
+multiple_cities%>%
+  filter(is.na(modern_birth_country))
+
+
+
+```
 

@@ -13,6 +13,9 @@ library(tidyverse)
 library(stringi) # for character standardization
 library(stringdist) # for fuzzy matching
 source('preprocess.R') # read/write external data
+
+
+
 ```
 
 # Topic 9: Birth Country Encryption
@@ -679,18 +682,60 @@ first_cities
 first_cities_with_country <- first_cities %>%
   left_join(world_cities_df, by = c("city_1" = "name"))
 
-first_cities_with_country
+first_cities_with_country%>%
+  filter(imp_birth_country=="000/160")
+
+first_cities_with_country %>%
+  group_by(imp_birth_country) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+
 
 # Kreis Osterode in Ostpreußen
 #OSTPR. means Ostpreußen
 ```
+#Determ Russia
+````{r}
+first_cities_with_country <- first_cities_with_country %>%
+  mutate(
+    Russian_country = case_when(
+      city_1 %in% c("KONIGSBERG", "SAMLAND", "GERDAUEN") ~ "Russia",
+      city_2 %in% c("KONIGSBERG", "SAMLAND", "GERDAUEN") ~ "Russia",
+      TRUE ~ NA_character_
+    )
+  )
+
+first_cities_with_country<-first_cities_with_country%>%
+  filter(is.na(first_cities_with_country$Russian_country))
+````
 
 
 
 
+
+
+
+<!-- Determ Poland -->
+
+````{r}
+first_cities_with_country <- first_cities_with_country %>%
+  mutate(
+    Poland_country_0 = case_when(
+      city_1 %in% c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG")~ "Poland",
+      city_2 %in% c("GROTTKAU", "SCHRODA", "SCHLESIEN", "OSTPR.", "OSTPREUSSEN", "NEIDENBURG","LABIAU","RASTENBURG") ~ "Poland",
+      TRUE ~ NA_character_
+    )
+  )
+
+first_cities_with_country<-first_cities_with_country%>%
+  filter(is.na(first_cities_with_country$Poland_country_0))
+````
 
 
 ```{r}
+
+library(rvest)
+library(xml2)
 
 #  Wikipedia
 url_pol <- "https://en.wikipedia.org/wiki/List_of_German_names_for_places_in_Poland"
@@ -886,7 +931,7 @@ ostpruss_df <- ostpruss_df %>%
   mutate(`German_name_cleaned` = `Deutscher Name` %>%
            str_remove(",.*$") %>%                    # remove comma and everything after
            str_remove_all("[´]") %>%                 # remove accent marks
-           str_remove_all("\\s+IN OSTPREUSSEN") %>% 
+           str_remove_all("\\s+in Ostpreußen") %>% 
            str_remove_all("\\[[a-zA-Z]\\]") %>%     # remove [g], [h] etc.
            stri_trans_general("Latin-ASCII") %>%    # convert ł → l, ś → s etc.
            toupper() %>%                             # uppercase all letters
@@ -938,8 +983,10 @@ poland_prus_left<-left_join(poland_prus%>%
 ,
 ostpruss_df, by=c("city_2"="German_name_cleaned"))
 
-poland_prus_left%>%
+left<-poland_prus_left%>%
   filter(is.na(`Prussian country.y`))
+
+left
 
 ```
 
