@@ -1119,11 +1119,13 @@ multiple_cities_poland
 url_pol <- "https://en.wikipedia.org/wiki/List_of_German_names_for_places_in_Poland"
 
 
+
 # html
 page <- read_html(url_pol)
 
 # all tables
 tables <- page %>% html_table(fill = TRUE)
+
 
 # table 2
 german_names_in_Poland <- tables[[2]] %>%
@@ -1376,15 +1378,88 @@ multiple_cities_poland_0_small <- multiple_cities_poland_0 %>%
 
 
 
+```{r}
+# https://de.wikipedia.org/wiki/Liste_deutscher_Bezeichnungen_polnischer_Orte
+german_names_in_Poland_0<- read.csv("Deutscher name.csv", stringsAsFactors = FALSE)
+```
+
+
+
+```{r}
+
+german_names_in_Poland_0<- german_names_in_Poland_0 %>%
+  mutate(
+    Polish_name_clean = Polisch.name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>%  
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      stri_trans_general("Latin-ASCII") %>%          #  (ł → l, ś → s и т.п.)
+      toupper() %>%                                  #
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% # заменить формы "JETZT" → "/"
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% # KRS/KREIS → "/"
+      # str_replace_all(" / ", "/")                  # при желании убрать пробелы вокруг "/"
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") # убрать хвосты типа "Ortsteil ..."
+  )
+
+
+german_names_in_Poland_0<- german_names_in_Poland_0 %>%
+  mutate(
+    German_name_clean = Deutscher.name %>%
+      str_remove(",.*$") %>%  
+      str_remove_all("[´]") %>% 
+      str_remove_all("\\[[a-zA-Z]\\]") %>%
+      str_remove_all("\\s*\\([^)]*\\)") %>%         # remove "( ... )"
+      str_remove("\\s*->.*$") %>%                   # 🔹 remove "-> SIEHE ..."
+      stri_trans_general("Latin-ASCII") %>%          
+      toupper() %>%                                  
+      str_replace_all("(JETZT|\\sJE[TZ]+T|\\sJ\\.|\\sJ\\s)+", "/") %>% 
+      str_replace_all("\\s+(KRS|KREIS|KRS\\.|K[\\.\\s])\\s+", "/") %>% 
+      str_remove("\\s+(0T|ORTSTEIL|STADT|BEZIRK|GEMEINDE).*$") %>%
+      str_trim()                                    # 🔹 clean trailing spaces
+  )
+
+
+german_names_in_Poland_0<- german_names_in_Poland_0 %>%
+  mutate(`Polish country` = "152")
+
+```
+
+
+```{r}
+pol_lookup_1 <- setNames(
+ german_names_in_Poland_0$`Polish country`,
+  german_names_in_Poland_0$German_name_clean
+)
+
+multiple_cities_poland_1 <- multiple_cities_poland_0 %>%
+  mutate(
+    city_1_country_1 = pol_lookup_1[city_1],
+    city_2_country_1 = pol_lookup_1[city_2],
+    city_3_country_1 = pol_lookup_1[city_3],
+    city_4_country_1 = pol_lookup_1[city_4]
+  ) %>%
+  rowwise() %>%
+  mutate(
+    exonym_country_1 = resolve_exonym_country(
+      city_1_country_1, city_2_country_1, city_3_country_1, city_4_country_1
+    )
+  ) %>%
+  ungroup()
+
+multiple_cities_poland_1_small <- multiple_cities_poland_1 %>%
+  select(pid, exonym_country_1)
+
+```
+
 
 
 # 8. Impute exonym country back into main dataset
 ```{r}
+multiple_cities <- multiple_cities %>%
+  left_join(multiple_cities_poland_small, by = "pid") %>%
+  left_join(multiple_cities_poland_0_small, by = "pid") %>%
+  left_join(multiple_cities_poland_1_small, by = "pid")
 
-multiple_cities<-left_join(multiple_cities,multiple_cities_poland_small,
-  multiple_cities_poland_0_small,
-  by = "pid"
-)
 
 multiple_cities
 ```
@@ -1397,16 +1472,45 @@ multiple_cities
 multiple_cities <- multiple_cities %>%
   rowwise() %>%
   mutate(
-    modern_birth_country = resolve_exonym_country(
-      exonym_country.x, exonym_country.y, exonym_country
-    )
+    history_birth_country = resolve_exonym_country(
+      exonym_country.x, exonym_country.y, exonym_country.x.x, exonym_country.y.y,exonym_country_0,
+    exonym_country_1)
   ) %>%
   ungroup()
 
+```
+
+```{r}
+
 multiple_cities%>%
   filter(is.na(modern_birth_country))
-
-
-
 ```
+
+```{r}
+data_filled_df <- data_filled_df%>%
+  left_join(
+    multiple_cities %>% select(pid, history_birth_country),
+    by = "pid"
+  )
+```
+
+```{r}
+
+data_filled_df <- data_filled_df %>%
+  mutate(
+    imp_birth_country = case_when(
+      imp_birth_country == "000/152" & !is.na(history_birth_country) ~ "152",
+      TRUE ~ imp_birth_country
+    ),
+    imp_name = case_when(
+      imp_birth_country == "000/152" & !is.na(history_birth_country) ~ "Polen",
+      TRUE ~ imp_name
+    ),
+    imp_type = case_when(
+      imp_birth_country == "000/152" & !is.na(history_birth_country) ~ paste0(imp_type, "/history"),
+      TRUE ~ imp_type
+    )
+  )
+```
+
 
