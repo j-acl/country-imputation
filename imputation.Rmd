@@ -705,8 +705,8 @@ first_cities_with_country <- first_cities_with_country %>%
     )
   )
 
-first_cities_with_country<-first_cities_with_country%>%
-  filter(is.na(first_cities_with_country$Russian_country))
+# first_cities_with_country<-first_cities_with_country%>%
+#   filter(is.na(first_cities_with_country$Russian_country))
 ````
 
 
@@ -727,8 +727,8 @@ first_cities_with_country <- first_cities_with_country %>%
     )
   )
 
-first_cities_with_country<-first_cities_with_country%>%
-  filter(is.na(first_cities_with_country$Poland_country_0))
+# first_cities_with_country<-first_cities_with_country%>%
+#   filter(is.na(first_cities_with_country$Poland_country_0))
 ````
 
 
@@ -834,6 +834,9 @@ german_names_in_Poland <- german_names_in_Poland %>%
 
 write_csv(german_names_in_Poland, "german_names_in_Poland.csv")
 ```
+
+
+
 
 ````{r}
 
@@ -991,4 +994,67 @@ left
 ```
 
 
+````{r}
+# Normalize exonym reference
+exonym_ref <- german_names_in_Poland %>%
+  select(German_name_clean, Polish_name_clean, Country) %>%
+  bind_rows(
+    ostpruss_df %>%
+      select(German_name_clean = German_name_cleaned,
+             Polish_name_clean = Polish_name_cleaned,
+             Country = `Prussian country`)
+  ) %>%
+  filter(!is.na(German_name_clean)) %>%
+  distinct(German_name_clean, .keep_all = TRUE) %>%
+  mutate(
+    Country = case_when(
+      Country %in% c("Poland", "POLAND") ~ "152",   # UN M49 / ISO code
+      Country %in% c("Russia", "RUSSIA") ~ "160",
+      TRUE ~ Country
+    )
+  )
 
+exonym_ref <- exonym_ref %>%
+  rename(Exonym_country = Country)
+
+names(exonym_ref)
+
+write.csv(exonym_ref, "exonym_ref.csv", row.names = FALSE)
+
+
+# # Impute into main dataset
+# first_cities_with_country <- first_cities_with_country %>%
+#   left_join(exonym_ref %>% select(German_name_clean, Country),
+#             by = c("city_1" = "German_name_clean")) %>%
+#   rename(country_from_city1 = Country) %>%
+#   left_join(exonym_ref %>% select(German_name_clean, Country),
+#             by = c("city_2" = "German_name_clean")) %>%
+#   rename(country_from_city2 = Country) %>%
+#   mutate(
+#     imp_birth_country = case_when(
+#       !is.na(country_from_city1) ~ country_from_city1,
+#       !is.na(country_from_city2) ~ country_from_city2,
+#       TRUE ~ imp_birth_country   # keep existing if nothing matched
+#     )
+#   )
+
+````
+
+
+# ````{r}
+# # Imputation step in your main dataset
+# first_cities_with_country <- first_cities_with_country %>%
+#   left_join(exonym_ref %>% select(German_name_clean, Country),
+#             by = c("city_1" = "German_name_clean")) %>%
+#   rename(country_from_city1 = Country) %>%
+#   left_join(exonym_ref %>% select(German_name_clean, Country),
+#             by = c("city_2" = "German_name_clean")) %>%
+#   rename(country_from_city2 = Country) %>%
+#   mutate(
+#     imp_birth_country = case_when(
+#       !is.na(country_from_city1) ~ country_from_city1,
+#       !is.na(country_from_city2) ~ country_from_city2,
+#       TRUE ~ imp_birth_country   # fallback to existing
+#     )
+#   )
+# ````

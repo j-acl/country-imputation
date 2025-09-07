@@ -22,7 +22,7 @@ library(stringi)
 library(stringdist)
 
 # Source your preprocessing functions
-# source('preprocess.R') # Uncomment when you have this file
+ source('preprocess.R') # Uncomment when you have this file
 
 # For demo purposes, I'll create some sample data
 # Replace this with your actual data loading
@@ -30,25 +30,74 @@ set.seed(123)
 n_total <- 48031
 n_missing <- 18814
 
+
+
+
 # Sample success rates by method
-imputation_summary <- data.frame(
-  imp_type = c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
-               "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship"),
-  n = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
-  description = c("Originally provided", "German city list", "World cities database", 
-                 "Historical eastern territories", "Literal country names",
-                 "Unique city-country mapping", "Majority city-country (>50%)",
-                 "Base German city names", "Majority citizenship (>70%)", 
-                 "Fallback to citizenship")
-)
+
+# Create imputation summary directly from your filled dataset
+imputation_summary <- data_filled_df %>%
+  group_by(imp_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
+  arrange(desc(n)) %>%
+  # Add readable descriptions (like the demo)
+  mutate(description = dplyr::recode(
+    imp_type,
+    "given"          = "Originally provided",
+    "german_city"    = "German city list",
+    "world_list"     = "World cities database",
+    "ostgebiete"     = "Historical eastern territories",
+    "country_literal"= "Literal country names",
+    "unique_city"    = "Unique city-country mapping",
+    "city_o50"       = "Majority city-country (>50%)",
+    "german_base"    = "Base German city names",
+    "citizen_o70"    = "Majority citizenship (>70%)",
+    "top_citizenship"= "Fallback to citizenship",
+    "history"        = "Historical lookup",
+    .default         = "Other"
+  ))
+# 
+# imputation_summary <- data.frame(
+#   imp_type = c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
+#                "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship","history"),
+#   n = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
+#   description = c("Originally provided", "German city list", "World cities database", 
+#                  "Historical eastern territories", "Literal country names",
+#                  "Unique city-country mapping", "Majority city-country (>50%)",
+#                  "Base German city names", "Majority citizenship (>70%)", 
+#                  "Fallback to citizenship")
+# )
 
 # Sample country distribution
-country_dist <- data.frame(
-  country = c("Germany", "Poland", "Turkey", "Russia", "Italy", "Syria", "Romania", "Other"),
-  iso3 = c("DEU", "POL", "TUR", "RUS", "ITA", "SYR", "ROU", "OTH"),
-  n = c(35000, 2800, 2200, 1800, 1100, 900, 800, 3331),
-  pct = c(72.9, 5.8, 4.6, 3.7, 2.3, 1.9, 1.7, 6.9)
-)
+
+# Build country distribution from the filled dataset
+# country_dist <- data_filled_df %>%
+#   group_by(imp_iso3, imp_name) %>%
+#   summarise(n = n(), .groups = "drop") %>%
+#   arrange(desc(n)) %>%
+#   # Collapse smaller countries into "Other"
+#   mutate(rank = row_number()) %>%
+#   mutate(group = ifelse(rank <= 7, bc_name, "Other"),
+#          iso3  = ifelse(rank <= 7, bc_iso3, "OTH")) %>%
+#   group_by(group, iso3) %>%
+#   summarise(n = sum(n), .groups = "drop") %>%
+#   arrange(desc(n)) %>%
+#   mutate(
+#     pct = round(100 * n / sum(n), 1),  # percent share
+#     country = group
+#   ) %>%
+#   select(country, iso3, n, pct)
+
+
+columns(data_filled_df)
+
+# country_dist <- data.frame(
+#   country = c("Germany", "Poland", "Turkey", "Russia", "Italy", "Syria", "Romania", "Other"),
+#   iso3 = c("DEU", "POL", "TUR", "RUS", "ITA", "SYR", "ROU", "OTH"),
+#   n = c(35000, 2800, 2200, 1800, 1100, 900, 800, 3331),
+#   pct = c(72.9, 5.8, 4.6, 3.7, 2.3, 1.9, 1.7, 6.9)
+# )
 ```
 
 # Executive Summary
@@ -255,7 +304,7 @@ Our imputation strategy employed a hierarchical approach:
 
 1. **German Cities**: Matched against official municipal directories
 2. **World Cities**: Used global cities database with population weighting
-3. **Historical Territories**: Special handling for former German territories (Ostgebiete)
+3. **Historical Territories**: Special handling for former German territories (Ostgebiete), German exonyms and german names of polish cities.
 4. **Literal Country Names**: Direct country name parsing from parentheticals
 5. **City Patterns**: Statistical assignment based on non-missing observations
 6. **Citizenship Fallback**: Used declared citizenship when geographical methods failed
@@ -265,11 +314,11 @@ Our imputation strategy employed a hierarchical approach:
 - **German Cities**: Statistikportal.de municipal directory (31,000+ entries)
 - **World Cities**: SimpleMaps world cities database (40,000+ cities)
 - **Country Codes**: DESTATIS official country classification
-- **Historical**: Manual curation of former German territories
+- **Historical**: Manual curation of former German territories, Wikipedia data with germans and polish names
 
 # Conclusions
 
-- Successfully imputed **`r success_rate`%** of missing birth countries
+- Successfully imputed 18 808 rows, success_rate 100%  of missing birth countries
 - German-focused approach appropriate for the dataset demographics
 - Multi-source strategy provided robust fallback options
 - Citizenship validation shows reasonable consistency patterns
