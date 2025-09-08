@@ -20,20 +20,22 @@ library(plotly)
 library(gt)
 library(stringi)
 library(stringdist)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(plotly)
+library(viridis)
 
 # Source your preprocessing functions
- source('preprocess.R') # Uncomment when you have this file
+ # source('preprocess.R') # Uncomment when you have this file
+data_filled_df <- read.csv("data_filled_df.csv", stringsAsFactors = FALSE)
 
-# For demo purposes, I'll create some sample data
-# Replace this with your actual data loading
+
 set.seed(123)
 n_total <- 48031
 n_missing <- 18814
 
 
-
-
-# Sample success rates by method
 
 # Create imputation summary directly from your filled dataset
 imputation_summary <- data_filled_df %>%
@@ -57,52 +59,75 @@ imputation_summary <- data_filled_df %>%
     "history"        = "Historical lookup",
     .default         = "Other"
   ))
-# 
-# imputation_summary <- data.frame(
-#   imp_type = c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
-#                "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship","history"),
-#   n = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
-#   description = c("Originally provided", "German city list", "World cities database", 
-#                  "Historical eastern territories", "Literal country names",
-#                  "Unique city-country mapping", "Majority city-country (>50%)",
-#                  "Base German city names", "Majority citizenship (>70%)", 
-#                  "Fallback to citizenship")
-# )
 
-# Sample country distribution
+# 1. Count occurrences per imputed country
+country_dist <- data_filled_df %>%
+  group_by(country = imp_name) %>%       # Replace imp_name with imp_birth_country if needed
+  summarise(n = n(), .groups = "drop") %>%
+  # 2. Compute percentage
+  mutate(pct = round(n / sum(n) * 100, 1)) %>%
+  # 3. Optional: group small counts into "Other" (less than 2% here)
+  mutate(country = ifelse(pct < 2, "Other", country)) %>%
+  group_by(country) %>%
+  summarise(
+    n = sum(n),
+    pct = sum(pct),
+    .groups = "drop"
+  ) %>%
+  # 4. Optionally add ISO3 codes
+  mutate(
+    iso3 = dplyr::case_when(
+      country == "Germany" ~ "DEU",
+      country == "Poland" ~ "POL",
+      country == "Turkey" ~ "TUR",
+      country == "Russia" ~ "RUS",
+      country == "Italy" ~ "ITA",
+      country == "Syria" ~ "SYR",
+      country == "Romania" ~ "ROU",
+      country == "Other" ~ "OTH",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  # 5. Arrange descending by count
+  arrange(desc(n))
 
-# Build country distribution from the filled dataset
-# country_dist <- data_filled_df %>%
-#   group_by(imp_iso3, imp_name) %>%
-#   summarise(n = n(), .groups = "drop") %>%
-#   arrange(desc(n)) %>%
-#   # Collapse smaller countries into "Other"
-#   mutate(rank = row_number()) %>%
-#   mutate(group = ifelse(rank <= 7, bc_name, "Other"),
-#          iso3  = ifelse(rank <= 7, bc_iso3, "OTH")) %>%
-#   group_by(group, iso3) %>%
-#   summarise(n = sum(n), .groups = "drop") %>%
-#   arrange(desc(n)) %>%
-#   mutate(
-#     pct = round(100 * n / sum(n), 1),  # percent share
-#     country = group
-#   ) %>%
-#   select(country, iso3, n, pct)
+country_dist
 
 
-columns(data_filled_df)
 
-# country_dist <- data.frame(
-#   country = c("Germany", "Poland", "Turkey", "Russia", "Italy", "Syria", "Romania", "Other"),
-#   iso3 = c("DEU", "POL", "TUR", "RUS", "ITA", "SYR", "ROU", "OTH"),
-#   n = c(35000, 2800, 2200, 1800, 1100, 900, 800, 3331),
-#   pct = c(72.9, 5.8, 4.6, 3.7, 2.3, 1.9, 1.7, 6.9)
-# )
+validation_data <- data_filled_df %>%
+  mutate(
+    # Make NA explicit
+    citizenship_1 = ifelse(is.na(citizenship_1), "missing", citizenship_1),
+    citizenship_2 = ifelse(is.na(citizenship_2), "missing", citizenship_2),
+    birth_country = ifelse(is.na(birth_country), imp_birth_country, birth_country), # use imputed if missing
+    
+    # Categorize each row
+    Category = case_when(
+      birth_country == citizenship_1 ~ "Birth country matches primary citizenship",
+      birth_country == citizenship_2 ~ "Birth country matches secondary citizenship",
+      birth_country == "Germany" & citizenship_1 == "000" ~ "Birth country is Germany, citizenship is German",
+      birth_country != citizenship_1 & birth_country != citizenship_2 ~ "No citizenship match (expected for immigrants)",
+      citizenship_1 == "missing" & citizenship_2 == "missing" ~ "Missing citizenship data",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  # Count and percentage
+  group_by(Category) %>%
+  summarise(
+    Count = n(),
+    Percentage = round(Count / nrow(data_filled_df) * 100, 1),
+    .groups = "drop"
+  ) %>%
+  filter(Category != "Other") %>%        # optionally remove "Other" if not needed
+  arrange(desc(Count))
+
 ```
 
 # Executive Summary
 
 This report presents the results of our birth country imputation project for **`r formatC(n_total, format="d", big.mark=",")`** records, with **`r formatC(n_missing, format="d", big.mark=",")`** missing birth countries successfully imputed using multiple reference sources and matching strategies.
+
 
 ## Key Results
 
@@ -133,35 +158,123 @@ summary_stats %>%
   )
 ```
 
+
+
+
+
+
+
+
+
+# Multi-classed imputation
+
+After solving multi-classed imputation we could improve algorithm in detecting unique country of birth.
+
+
+## Comparinison
+
+```{r}
+# Static data
+imp_birth_country_before <- data.frame(
+  country_code = c('000/152', '000/151', '000/160', '149/152', '000/124', 
+                   '000/142', '000/148', '000/368', '000/438', '000/451'),
+  n = c(169, 13, 12, 12, 2, 2, 2, 2, 2, 2)
+)
+
+imp_birth_country_after <- data.frame(
+  country_code = c('000/151', '000/152', '000/160', '149/152', '000/124', 
+                   '000/142', '000/148', '000/368', '000/438', '000/451'),
+  n = c(11, 7, 5, 4, 2, 2, 2, 2, 2, 2)
+)
+# Combine data
+combined <- full_join(imp_birth_country_before, imp_birth_country_after, by = "country_code", suffix = c("_before", "_after")) %>%
+  replace_na(list(n_before = 0, n_after = 0)) %>%
+  pivot_longer(cols = c(n_before, n_after), names_to = "group", values_to = "count")
+
+# Plot horizontal bars
+ggplot(combined, aes(x = country_code, y = count, fill = group)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("n_before" = "skyblue", "n_after" = "salmon"), 
+                    labels = c("Before", "After")) +
+  labs(x = "Country Code", y = "Count", fill = "Group", 
+       title = "Before vs After Multiclass Imputation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
+  coord_flip()
+```
+
+
+
 # Imputation Methods Performance
 
 ## Success Rate by Method
 
 ```{r imputation_performance}
-# Create interactive bar chart
-perf_plot <- imputation_summary %>%
-  filter(imp_type != "given") %>%
-  mutate(
-    pct = round(n / n_missing * 100, 1),
-    imp_type = fct_reorder(imp_type, n)
-  ) %>%
-  ggplot(aes(x = imp_type, y = n, fill = imp_type,
-             text = paste0("Method: ", description,
-                          "<br>Records: ", formatC(n, format="d", big.mark=","),
-                          "<br>% of Missing: ", pct, "%"))) +
-  geom_col() +
-  coord_flip() +
-  scale_fill_viridis_d() +
-  labs(
-    title = "Records Imputed by Method",
-    x = "Imputation Method",
-    y = "Number of Records",
-    caption = "Hover for details"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "none")
 
-ggplotly(perf_plot, tooltip = "text")
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(plotly)
+library(RColorBrewer)  # or viridis if installed
+
+# Assume imputation_summary is already defined and n_missing calculated
+n_missing <- sum(imputation_summary$n)
+
+ui <- fluidPage(
+  titlePanel("Imputation Performance Explorer"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("threshold",
+                  "Minimum Records to Display:",
+                  min = 0,
+                  max = 300,
+                  value = 100,
+                  step = 20)
+    ),
+    
+    mainPanel(
+      plotlyOutput("perf_plot")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  output$perf_plot <- renderPlotly({
+    # Filter dynamically based on slider
+    perf_data <- imputation_summary %>%
+      filter(imp_type != "given") %>%
+      filter(n > input$threshold) %>%   # dynamic threshold
+      mutate(
+        pct = round(n / n_missing * 100, 1),
+        imp_type = fct_reorder(imp_type, n)
+      )
+    
+    perf_plot <- ggplot(perf_data,
+                        aes(x = imp_type, y = n, fill = imp_type,
+                            text = paste0("Method: ", description,
+                                          "<br>Records: ", formatC(n, format="d", big.mark=","),
+                                          "<br>% of Missing: ", pct, "%"))) +
+      geom_col() +
+      coord_flip() +
+      scale_fill_brewer(palette = "Set2") +  # built-in palette
+      labs(
+        title = "Records Imputed by Method",
+        x = "Imputation Method",
+        y = "Number of Records",
+        caption = "Hover for details"
+      ) +
+      theme_minimal() +
+      theme(legend.position = "none")
+    
+    ggplotly(perf_plot, tooltip = "text")
+  })
+}
+
+shinyApp(ui, server)
+
 ```
 
 ## Method Details
@@ -197,6 +310,9 @@ imputation_summary %>%
 ## Imputed Birth Countries
 
 ```{r country_distribution}
+
+
+
 # Interactive pie chart
 pie_plot <- country_dist %>%
   plot_ly(labels = ~country, values = ~n, type = 'pie',
@@ -213,55 +329,81 @@ pie_plot <- country_dist %>%
 pie_plot
 ```
 
-<!-- ## Top Countries Table -->
 
-<!-- ```{r countries_table} -->
-<!-- country_dist %>% -->
-<!--   arrange(desc(n)) %>% -->
-<!--   mutate( -->
-<!--     Records = formatC(n, format="d", big.mark=","), -->
-<!--     Percentage = paste0(pct, "%") -->
-<!--   ) %>% -->
-<!--   select(Country = country, `ISO Code` = iso3, Records, Percentage) %>% -->
-<!--   gt() %>% -->
-<!--   tab_header(title = "Birth Countries After Imputation") %>% -->
-<!--   cols_align(align = "center", columns = c("ISO Code", "Records", "Percentage")) %>% -->
-<!--   data_color( -->
-<!--     columns = Percentage, -->
-<!--     colors = scales::col_numeric( -->
-<!--       palette = "Blues", -->
-<!--       domain = c(0, max(country_dist$pct)) -->
-<!--     ) -->
-<!--   ) -->
-<!-- ``` -->
 
 # Interactive Data Explorer
 
-```{r sample_data_table}
-# Create sample of final results for exploration
-# Replace this with your actual data_filled_df
-sample_results <- data.frame(
-  pid = 1:1000,
-  birth_city = sample(c("BERLIN", "HAMBURG", "ISTANBUL", "WARSZAWA", "ROMA", "PARIS", "LONDON", NA), 1000, replace = TRUE),
-  imp_birth_country = sample(c("000", "152", "163", "380", "826"), 1000, replace = TRUE),
-  imp_name = sample(c("Germany", "Poland", "Turkey", "Italy", "United Kingdom"), 1000, replace = TRUE),
-  imp_type = sample(imputation_summary$imp_type, 1000, replace = TRUE, prob = imputation_summary$n),
-  citizenship_1 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE),
-  citizenship_2 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE)
-)
+```{r}
+library(dplyr)
+library(DT)
 
+
+sample_results <- data_filled_df %>%
+  # Optional: take a sample of 1000 rows if your dataset is large
+  slice_sample(n = min(1000, nrow(data_filled_df))) %>%
+  # Join readable description for imp_type
+  left_join(imputation_summary %>% select(imp_type, description), by = "imp_type") %>%
+  # Select & rename columns for display
+  select(
+    ID = pid,
+    `Birth City` = birth_city,
+    `Imputed Country` = imp_name,
+    `Method Used` = description,
+    `Citizenship 1` = citizenship_1,
+    `Citizenship 2` = citizenship_2
+  )
+
+# 3. Display interactive table
 sample_results %>%
-  select(ID = pid, `Birth City` = birth_city, `Imputed Country` = imp_name,
-         `Method Used` = imp_type, `Citizenship 1` = citizenship_1, `Citizenship 2` = citizenship_2) %>%
   datatable(
     filter = 'top',
     options = list(
       pageLength = 25,
-      scrollX = TRUE,
+      scrollX = TRUE,      # allow horizontal scroll
+      autoWidth = TRUE,    # adjust column widths automatically
       dom = 'Bfrtip'
     ),
     caption = "Sample of imputation results - Use filters above columns to explore patterns"
   )
+
+
+
+```
+
+
+
+```{r sample_data_table}
+
+
+
+
+
+
+# 
+# # Create sample of final results for exploration
+# # Replace this with your actual data_filled_df
+# sample_results <- data.frame(
+#   pid = 1:1000,
+#   birth_city = sample(c("BERLIN", "HAMBURG", "ISTANBUL", "WARSZAWA", "ROMA", "PARIS", "LONDON", NA), 1000, replace = TRUE),
+#   imp_birth_country = sample(c("000", "152", "163", "380", "826"), 1000, replace = TRUE),
+#   imp_name = sample(c("Germany", "Poland", "Turkey", "Italy", "United Kingdom"), 1000, replace = TRUE),
+#   imp_type = sample(imputation_summary$imp_type, 1000, replace = TRUE, prob = imputation_summary$n),
+#   citizenship_1 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE),
+#   citizenship_2 = sample(c("000", "152", "163", "380", "826", NA), 1000, replace = TRUE)
+# )
+# 
+# sample_results %>%
+#   select(ID = pid, `Birth City` = birth_city, `Imputed Country` = imp_name,
+#          `Method Used` = imp_type, `Citizenship 1` = citizenship_1, `Citizenship 2` = citizenship_2) %>%
+#   datatable(
+#     filter = 'top',
+#     options = list(
+#       pageLength = 25,
+#       scrollX = TRUE,
+#       dom = 'Bfrtip'
+#     ),
+#     caption = "Sample of imputation results - Use filters above columns to explore patterns"
+#   )
 ```
 
 # Quality Assessment
@@ -269,23 +411,18 @@ sample_results %>%
 ## Citizenship Validation
 
 ```{r citizenship_validation}
-# Sample validation data
-validation_data <- data.frame(
-  Category = c("Birth country matches primary citizenship",
-               "Birth country matches secondary citizenship",
-               "Birth country is Germany, citizenship is German",
-               "No citizenship match (expected for immigrants)",
-               "Missing citizenship data"),
-  Count = c(12500, 3200, 28000, 3800, 531),
-  Percentage = c(26.0, 6.7, 58.3, 7.9, 1.1)
-)
+
+
+library(ggplot2)
+library(plotly)
+library(stringr)
 
 validation_plot <- validation_data %>%
   mutate(Category = str_wrap(Category, 25)) %>%
   ggplot(aes(x = reorder(Category, Count), y = Count, fill = Category,
              text = paste0("Category: ", Category,
-                          "<br>Count: ", formatC(Count, format="d", big.mark=","),
-                          "<br>Percentage: ", Percentage, "%"))) +
+                           "<br>Count: ", formatC(Count, format="d", big.mark=","),
+                           "<br>Percentage: ", Percentage, "%"))) +
   geom_col() +
   coord_flip() +
   scale_fill_brewer(type = "qual", palette = "Set2") +
@@ -296,6 +433,7 @@ validation_plot <- validation_data %>%
   theme(legend.position = "none")
 
 ggplotly(validation_plot, tooltip = "text")
+
 ```
 
 # Methodology Summary

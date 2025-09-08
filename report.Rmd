@@ -18,6 +18,7 @@ output:
     fig_caption: yes
     citation_package: biblatex
     number_sections: true
+    latex_engine: xelatex
 toc: true
 lot: true
 lof: true
@@ -46,9 +47,11 @@ We consider a set of mock administrative data in which 40% of records are missin
 
 Our approach combines multiple imputation strategies in a hierarchical framework, beginning with the most reliable sources (exact city matches in official databases) and progressively incorporating less certain approaches (citizenship-based imputation) for remaining missing values. We use direct indications of country in birth city names, matches to German or international reference datasets, cities with some non-missing values, typical citizenships associated with cities, and a few manual mappings to assign cities to countries. When direct city matching fails, we fall back to record-level indication of citizenship, which generally but not always leads to identification of 'Germany.'
 
-The majority of incomplete records are matched to a German city by direct reference, and many are matched using appearances of their birth city in the complete records, then we usually fall back to citizenship. Post-imputation, we see a population born 29% in Germany, 9% in Poland, 8% in Syria, and a long tail of other countries.
+The majority of incomplete records are matched to a German city by direct reference, and many are matched using appearances of their birth city in the complete records, then we usually fall back to citizenship. Post-imputation, we see a population born 29% in Germany, 10% in Poland and a long tail of other countries.
 
 The remainder of this paper is structured as follows. Section \ref{sec:data} describes the data sources and the preprocessing to relate them to each other. Section \ref{sec:imputation} details our imputation methodology, including the hierarchical matching process and the stepwise impacts on the incomplete records. Section \ref{sec:results} presents the results, including final success rates and a visualization of the geographic distribution of imputed birth countries. Section \ref{sec:conclusion} discusses the limitations of our approach, potential extensions, and general takweaways for similar data imputation challenges.
+
+\newpage
 
 # Data {#sec:data}
 
@@ -60,33 +63,79 @@ raw_df <- read.csv("data/birthdata.csv", sep=";")
 raw_ct <- nrow(raw_df)
 mi_ct <- sum(is.na(raw_df$birth_country))
 mi_pct <- round(mi_ct/raw_ct * 100, 1)
-deu_ct <- sum(raw_df$citizenship_1 == "0" | raw_df$citizenship_2 == "0", na.rm = TRUE)
+deu_ct <- sum(raw_df$citizenship_1 == "0" 
+              | raw_df$citizenship_2 == "0", na.rm = TRUE)
 deu_pct <- round(deu_ct/raw_ct * 100, 1)
 
-NNN<-0
+data_filled_df <- read.csv("data_filled_df.csv", stringsAsFactors = FALSE)
+city_country_df <- read.csv("city_country_df.csv", stringsAsFactors = FALSE)
+best_citizens_df<- read.csv("best_citizens_df.csv", stringsAsFactors = FALSE)
+
+
+
+# Count per imputation type
+summary_df <- data_filled_df %>%
+  group_by(imp_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(pct = round(n / sum(n) * 100, 2)) %>%
+  arrange(desc(n))
+
+summary_df 
+# Filter specifically for German city matches
+g_city <- summary_df %>%
+  filter(imp_type == "german_city")
+w_city <- summary_df %>%
+  filter(imp_type == "world_list")
+multi<-256
+h_list<- summary_df %>%
+  filter(imp_type == "history")
+imp<-summary_df %>%
+  filter(!imp_type == "given")
+citizen<-summary_df %>%
+  filter(!imp_type == "top_citizenship")
+
+# German city
+g_city_n <- g_city$n
+g_city_pct <- g_city$pct
+
+# World list
+w_city_n <- w_city$n
+w_city_pct <- w_city$pct
+
+# History list
+h_list_n <- h_list$n
+h_list_pct <- h_list$pct
+
+# Multiple (assuming you want to use the value 256 as count)
+multi_n <- multi
+multi_pct <- round(multi_n / sum(summary_df$n) * 100, 2)
+
+# Total imputed cases (excluding "given")
+imp_n <- sum(imp$n)
+imp_pct <- round(imp_n / sum(summary_df$n) * 100, 2)
+
+# Citizenship-based inference (filter top_citizen explicitly)
+citizen <- summary_df %>%
+  filter(imp_type == "top_citizenship")
+
+citizen_n <- sum(citizen$n)
+citizen_pct <- round(citizen_n / sum(summary_df$n) * 100, 2)
+NNN<-11680 
+
+
 ```
 
 Our work combines a given incomplete 'birth data' dataset with several external reference sources to enable systematic imputation of missing birth country information:
 
 * country codes from Statistisches Bundesamt (DESTATIS)
 * modern municipal directory from Die Statistischen Ämter des Bundes und der Länder
-* historical eastern territories of Germany from NNNTODO
+* historical eastern territories of Germany from external sources, Wikipedia and manual list
 * major modern international cities from the World Cities Database
 
 ## Primary dataset
 
 Our dataset contains `r format(raw_ct, big.mark = ",")` observations of individuals with citizenship and birth location information, of which approximately `r format(mi_ct, big.mark = ",")` records (`r mi_pct`%) are missing birth country data. At a glance, the records show a strong German orientation, with `r deu_pct`% of all records marking a German citizenship and many incomplete records indicating German birth cities. In fact, there are no complete records with a German (000) birth country marked, suggesting a systematic null for German country of birth.
 
-```{r raw_summary}
-# raw_df %>% 
-#   summarise(
-#     `Total Records` = n(),
-#     `Missing Birth Country` = sum(is.na(birth_country)),
-#     `Missing Birth City` = sum(is.na(birth_city)),
-#     `German Citizenship` = sum(citizenship_1 == "0" | citizenship_2 == "0", na.rm = TRUE)
-#   ) %>%
-#   knitr::kable(caption = "Dataset Overview")
-```
 
 Given the expectation of substantial German origin for the incomplete records, we focus on understanding and identifying German (or formerly German) cities, and prioritize European cities in cases of ambiguity, while maintaining global coverage for edge cases.
 
@@ -100,7 +149,7 @@ The German Federal Statistical Office (*Statistisches Bundesamt*) provides stand
 
 ### German Municipal Listing
 
-The Statistical Offices of the Federation and States (*Die Statistischen Ämter des Bundes und der Länder*) publish an annual directory of municipal and city administrations [@statsaemter2023]. This "Municipal Directory" contains comprehensive listings of German cities and municipalities as of January 2023. We extract city names from both the official seat locations and administrative designations, providing a list of approximately `r NNN` potential names for German localities, including variations. This serves as our primary reference for identifying German birth cities, with both exact matching and simplified matching (removing common prefixes and administrative suffixes).
+The Statistical Offices of the Federation and States (*Die Statistischen Ämter des Bundes und der Länder*) publish an annual directory of municipal and city administrations [@statsaemter2023]. This "Municipal Directory" contains comprehensive listings of German cities and municipalities as of January 2023. We extract city names from both the official seat locations and administrative designations, providing a list of approximately `r g_city_n` potential names for German localities, including variations. This serves as our primary reference for identifying German birth cities, with both exact matching and simplified matching (removing common prefixes and administrative suffixes).
 
 ### Ostgebeite
 
@@ -108,12 +157,13 @@ For historical German territories now part of other countries, we manually compi
 
 ### International
 
-We incorporate the World Cities Database from SimpleMaps [@simplemaps2024], which provides comprehensive global city coverage with population weights and country assignments. This "World Cities DB" contains over 40,000 cities worldwide and serves as our fallback reference for non-German locations. While the primary impact is modest (clarifying `r NNN` of our otherwise unmatched cases), it provides important validation that remaining unmatched records do not correspond to major international cities, supporting our assumption that most represent German locations with non-standard spellings.
+We incorporate the World Cities Database from SimpleMaps [@simplemaps2024], which provides comprehensive global city coverage with population weights and country assignments. This "World Cities DB" contains over 40,000 cities worldwide and serves as our fallback reference for non-German locations. While the primary impact is modest (clarifying `r w_city_n` of our otherwise unmatched cases), it provides important validation that remaining unmatched records do not correspond to major international cities, supporting our assumption that most represent German locations with non-standard spellings.
 
 ```{r data-overview, results='asis'}
 # Summary table of data sources and their contributions
 overview_table <- data.frame(
-  Metric = c("Total Records", "Missing Birth Country", "German Citizenship"),
+  Metric = c("Total Records", "Missing Birth Country", 
+             "German Citizenship"),
   Count = c(
     format(raw_ct, big.mark = ","),
     format(mi_ct, big.mark = ","),
@@ -126,31 +176,39 @@ overview_table <- data.frame(
   )
 )
 
-# knitr::kable(overview_table, caption = "Dataset Overview")
+
+ knitr::kable(overview_table, caption = "Dataset Overview")
 ```
 
 The combination of these sources clarifies and prioritizes the expected German-heavy geographic distribution of our records, while also covering basic international and historical considerations.
 
-# Imputation
+\newpage
+
+# Imputation {#sec:imputation}
 
 There are a number of factors we can leverage to impute missing information:
-* many records are complete, and can be used to identify cities or patterns.
-* many incomplete records are likely to be German, and to follow naming patterns used in German administration.
-* some records directly indicate a country or a well-known modern city.
 
-Generally, we try to identify the birth country based on birth city. This is complicated by several factors that make birth city names non-trivial to attach to a country.
+*  many records are complete, and can be used to identify cities or patterns.
+*  many incomplete records are likely to be German, and to follow naming patterns used in German administration.
+* some records directly indicate a country or a well-known modern city.
+* some multi-class imputation, like Germany/Poland, likely relate to former German territories or German names of Polish territories. 
+
+Generally, we try to identify the birth country based on birth city. This is complicated by several factors that make birth city names non-trivial to attach to a country:
 * birth city names often have non-standardized formats, inconsistent transliterations, or misspellings.
 * many birth city names include a slash ("/") which *often but not always* indicates a sub/super unit of geography (typically City/District).
+
 * birth cities may indicate a historical name or a region rather than a city.
+* birth cities may indicate the country itself.
 
 The imputation process follows a hierarchical progression, beginning with the most reliable sources and progressively incorporating less certain approaches for remaining missing values. We impute missing birth countries based on the following ordered approach:
 
 1. **Direct country indications**: Parenthetical country names in birth city entries
-2. **German city matching**: Exact and simplified matches to official German municipal directories  
+2. **German city matching**: Exact and simplified matches to official German municipal directories
 3. **Empirical city-country patterns**: Dominant country assignments from complete records
 4. **International city matching**: Matches to major world cities database
 5. **Citizenship-based inference**: Primary and secondary citizenship information
-6. **Default citizenship assignment**: Final fallback to primary citizenship
+6. **Default citizenship assignment**: Fallback to primary citizenship
+7. **Multi-class solution**: Matches to German exonyms of Polish cities.
 
 Each record progresses through this hierarchy until a country assignment is made. The detailed implementation of each step is described below.
 
@@ -163,7 +221,7 @@ Before attempting any geographic matching, we standardize birth city names to im
 <!-- - **Fuzzy matching standardization**: Apply edit-distance matching to correct common spelling variations for frequently appearing city names -->
 - **Parenthetical extraction**: Identify and extract country names appearing in parentheses (e.g., "BUDAPEST (HUNGARY)")
 
-After standardization, records are processed at the city-component level, then reaggregated to the individual level using a smart collapse function that keeps all potential matches. Relatively few (`r NNN``) records are multi-matched, and the 'better' match is selected by using the same overall hierarchy of match reliability.
+After standardization, records are processed at the city-component level, then reaggregated to the individual level using a smart collapse function that keeps all potential matches. Relatively few (`r multi_n`) records are multi-matched, and the 'better' match is selected by using the same overall hierarchy of match reliability.
 
 ## Direct Country Indications
 
@@ -180,10 +238,14 @@ Given the strong German orientation of our data, we implement comprehensive matc
 ```{r}
 clean_german_city <- function(city_name) {
   city_name %>%
-    str_remove("^BAD ") %>%                           # Remove "Bad" prefix
-    str_remove("\\s+(AN|AM)\\s+(?:(DER|DEM)\\s+)?\\w+.*$") %>%  # Remove "an der/am" constructions
-    str_remove("\\s+(A|V|I)[\\s\\.]*.*$") %>%         # Remove abbreviations  
-    str_remove("-.*$") %>%                            # Remove hyphenated extensions
+    # Remove "Bad" prefix
+    str_remove("^BAD ") %>%                         
+    # Remove "an der/am" constructions
+    str_remove("\\s+(AN|AM)\\s+(?:(DER|DEM)\\s+)?\\w+.*$") %>%  
+    # Remove abbreviations 
+    str_remove("\\s+(A|V|I)[\\s\\.]*.*$") %>%         
+    # Remove hyphenated extensions
+    str_remove("-.*$") %>%                           
     str_trim()
 }
 ```
@@ -192,14 +254,54 @@ This approach allows "BAD HOMBURG" to match to "HOMBURG" and "FRANKFURT AM MAIN"
 
 ## Ostgebeite
 
-NNNTODO: For international locations, we prioritize modern political boundaries for consistency. 
+For international locations, we prioritize modern political boundaries for consistency. 
+As first step we took restricted manual list of former German cities in East Europe. 
+
+```{r}
+ostgebiete_df <-rbind(data.frame(
+  # Poland
+  birth_city = c("GROTTKAU", "SCHRODA", "SCHLESIEN", 
+                 "OSTPR.", "OSTPREUSSEN", "NEIDENBURG",
+                 "LABIAU","RASTENBURG","PYRITZ", "STREHLEN", 
+                 "ANGERBURG", "LAUBAN", "SCHLOCHAU", "BUNZLAU"),
+  ostgebiete = "152"
+),data.frame(
+  # Russia
+  birth_city = c("GERDAUEN", "SAMLAND","GUMBINNEN",
+                 "INSTERBURG","PR. EYLAU","WEHLAU",
+                 "HEILIGENBEIL", "PREUSSISCH EYLAU", 
+                 "ELCHNIEDERUNG", "FISCHHAUSEN", "ANGERAPP"),
+  ostgebiete = "160"
+),data.frame(
+  # Lithuania
+  birth_city = c("HEYDEKRUG"),
+  ostgebiete = "142"
+),data.frame(
+  # Germany
+  birth_city = c("WESERMUNDE", "RUPPIN", "EISLEBEN"),
+  ostgebiete = "000" # kind of cheating
+),data.frame(
+  # Kosovo
+  birth_city = c("PRISHTINA"),
+  ostgebiete = "150" # definitely cheating
+)
+)
+
+ostgebiete_df%>%
+   slice_head(n = 10)%>%
+  knitr::kable(caption = "Ostgebeite")
+```
 
 ## Non-missing city-level information
 
 For cities that appear in both complete and incomplete records, we extract empirical patterns from the complete data to inform imputation. We identify all city-country combinations in records with non-missing birth country information, calculating the frequency with which each city corresponds to each country. Cities where a single country accounts for more than 50% of complete observations are assigned that dominant country. For example, since "DAMASKUS" appears in 43 complete records and 41 of those indicate Syria as the birth country, we assign Syria to any incomplete records listing "DAMASKUS" as the birth city. 
 
 ```{r}
-# example table
+
+city_country_df%>%
+   slice_head(n = 10)%>%
+  knitr::kable(caption = "Non-missing city-level information")
+
 ```
 
 This approach leverages the assumption that individuals sharing the same birth city are likely to share the same birth country, while accepting some ambiguity due to historical changes or data entry errors. 
@@ -215,7 +317,11 @@ When geographic matching fails, we fall back to citizenship information, which i
 On the city level, we can attempt to identify country using an approach similar to one based on non-missing country of birth. Here, even if the country of birth is missing, we can check how many citizenship is assigned on records with a given city. Given the prevalent German citizenship and the existing reference list for German cities, we consider any non-German citizenships for the cities in question. Then, we calculate frequencies to search for dominant indications.
 
 ```{r}
-# example table
+
+best_citizens_df%>%
+ slice_head(n = 10)%>%
+  knitr::kable(caption = "Citizenship Frequency")
+
 ```
 
 As citizenship has valid reason to not be the same as birth country, we use a higher threshold and require 70% of citizenship to indicate a particular country to assign a city there.
@@ -224,156 +330,70 @@ As citizenship has valid reason to not be the same as birth country, we use a hi
 
 For remaining cases, we assign birth country based on the individual's citizenship, prioritizing secondary citizenship when available. A simple tabulation of citizenship vs birth country alignment demonstrates that secondary citizenship aligns with birth country slightly more often. Note that there is also fairly substantial misalignment between citizenship and birth country, generally.
 
-```{r}
-# example table
-```
+
+
+
+## Multi-class Imputation for Ambiguous Birth Cities
+
+In cases where the multi-class imputation detected two different countries for a single record, we focused on resolving the most frequent cluster: **Germany/Poland**. All such records correspond to ambiguous birth cities written with a slash ("/"), for example `"DANZIG/SCHONSEE"`.
+
+To resolve these cases, we leveraged external sources listing German exonyms of Polish cities. Specifically, we used:
+
+- The general list of German names for Polish locations (\cite{wikiGermanPolishPlaces}, \cite{wikiEnGermanNamesPoland}).
+- Regional lists for specific Polish voivodeships, including:
+  - Ermland-Masuren \cite{wikiErmlandMasuren}
+  - Lebus (\cite{wikiLebus})
+  - Niederschlesien (\cite{wikiNiederschlesien})
+  - Westpommern (\cite{wikiWestpommern})
+  - Opole (\cite{wikiOpole})
+  - Schlesien (\cite{wikiSchlesien})
+
+These resources allowed us to systematically match ambiguous city names to their German exonyms, providing a consistent and accurate resolution for the  (`r h_list_n`) ambiguous records in the dataset.
+
+
+
 
 ## Implementation Summary
 
 Though this hierarchical assignment of imputed birth country, we use reliable information if available, and less certain inference methods if necessary. Each individual record is processed through the complete hierarchy, with assignment occurring at the first successful match, while the source of each match is flagged to enable analysis of results.
 
-# Results
 
-This methodology successfully assigns birth countries to r NNN% of originally missing cases, with r NNN% based on geographic matching and r NNN% requiring citizenship-based inference.
+\newpage
+# Results {#sec:results}
 
+This methodology successfully assigns birth countries to `r imp_pct` % of originally missing cases, with `r g_city_pct` % based on geographic matching of german cities and `r citizen_pct` % requiring citizenship-based inference.
 
-In order of presumed reliability:
-* German city matching accounts for approximately r NNN% of previously missing cases.
-
-In order of overall impact:
-
-## The gt package
-
-Often that involves presenting data and results in a tabular format. The `gt` package provides a modern and flexible way to generate high-quality LaTeX or HTML tables from R objects.
-
-### Showing data using gt
-
-```{r, message=FALSE, warning=FALSE, results='asis'}
-data(trees)
-
-n <- 6
-trees_sample <- trees %>%
-  slice_sample(n = n) %>%
-  mutate(Row = row_number()) %>%
-  relocate(Row)
-
-gt_latex <- trees_sample %>%
-  gt() %>%
-  tab_header(
-    title = md(
-      paste(n, "Observations from the `trees` Dataset")
-      )
-  ) %>%
-  cols_label(
-    Girth = "Diameter",
-    Height = "Height",
-    Volume = "Volume"
-  ) %>%
-  tab_options(
-    latex.tbl.pos = "H", 
-    latex.use_longtable = FALSE
-  ) %>%
-  as_latex()
-
-# Replace \begin{table} with \begin{table}[H]
-gt_latex <- gsub(
-  "\\\\begin\\{table\\}", 
-  "\\\\begin{table}[H]", 
-  gt_latex
-)
-
-cat(gt_latex)
+```{r}
+summary_df %>%
+  slice_max(n, n = 26) %>%
+  knitr::kable(caption = "Imputation Types by Frequency")
 ```
 
-### Regression summary with `gt`
 
-```{r, message=FALSE, warning=FALSE, results='asis'}
-mod <- lm(Volume ~ Height, data = trees)
-mod_summary <- tidy(mod)
-
-gt_latex <- mod_summary %>%
-  mutate(term = recode(
-    term, "(Intercept)" = "Intercept")
-    ) %>%
-  gt() %>%
-  tab_header(
-    title = "OLS Regression: Volume ~ Height"
-  ) %>%
-  fmt_number(
-    columns = where(is.numeric),
-    decimals = 3
-  ) %>%
-  cols_label(
-    term = "Term",
-    estimate = "Estimate",
-    std.error = "Std. Error",
-    statistic = "t Statistic",
-    p.value = "p-Value"
-  ) %>%
-  as_latex()
-
-# Replace \begin{table} with \begin{table}[H]
-gt_latex <- gsub(
-  "\\\\begin\\{table\\}", 
-  "\\\\begin{table}[H]", 
-  gsub(
-    "caption\\*", 
-    "caption", 
-    gsub(
-      "\\\\begin\\{tabular\\*\\}", 
-      "\\\\label{tab:olsrestab}\n\\\\begin{tabular*}", 
-      gt_latex
-    )
-  )
-)
-
-cat(gt_latex)
-```
-
-Table \ref{tab:olsrestab} is a table with a label and thus can be referenced. Captioned tables will appear in the LOT.
 
 ## Visualization
 
 We step through this using a dashboard.
 
-```{r pop_dist, echo=FALSE, fig.cap="\\label{fig:pop_dist} Population Distribution", fig.height=4, fig.pos="t"}
-# plot(pop_dist)
-```
+\newpage
 
-Looking at Figure \ref{fig:pop_dist} makes me happy.
+# Conclusion {#sec:conclusion}
 
+Missing data remains a persistent challenge in empirical research, particularly when demographic variables such as birth country are incomplete. This study addresses that problem by imputing missing birth country information using auxiliary features and external reference datasets.
+Our approach combines geographic matching, historical name resolution, and citizenship information to assign countries of birth for individuals with missing data. The process is designed to be extensible: as additional reference sources are integrated, imputation accuracy can be expected to improve.
 
-```{r, fig.cap="Dataset and regression"}
-plot(trees$Volume ~ trees$Height,
-     xlab = "Height", 
-     ylab = "Volume",
-     main = "Linear Regression: Volume ~ Height")
-abline(mod, col = "blue", lwd = 2)
-```
-
-# Conclusion
-
-Missing data poses a persistent challenge in empirical research, particularly when key demographic variables are incomplete. This paper addresses the practical problem of imputing missing birth country information using auxiliary features and external reference datasets. 
-
-We combine ; we use ; to assign the overall population. 
-
-process can be continually refined. Expect matches to improve if we -- 
-* handle historical countries and territories more intelligently. Some state codes are excessively separated (eg Yugoslavia vs Repulic of Yugoslavia), some are grouped unintuitively (namely Palestine and Taiwan). Currently we take state codes as they are given, including when calculating majority country/citizenship for particular cities.
-
-This demonstrates how external reference data can be systematically integrated into the imputation process, incorporating knowledge about geographic and political relationships. 
+There are clear opportunities for refinement. In particular, Historical countries and territories could be handled more systematically. For example, Yugoslavia is sometimes split into multiple successor states (e.g., Republic of Yugoslavia) or treated as a single entity, while other cases such as Palestine and Taiwan are grouped in ways that obscure distinctions.
+At present, state codes are taken as given, even when they are inconsistent across records. This affects the accuracy of majority country assignments for certain cities.
+Overall, this work demonstrates that external geographic and historical reference data can be systematically integrated into the imputation process. By leveraging contextual knowledge about political and territorial boundaries, we can more accurately reconstruct missing demographic information.
 
 
 
 \pagebreak
 
-# Software References {-}
+<!-- # Software References {-} -->
+
 \addcontentsline{toc}{section}{Software References}
 
-\newpage
 
-# Appendix {-}
-\addcontentsline{toc}{section}{Appendix}
 
-## A.1 Description of relevant variables
 
-## A.2 Fuzzy and manual matches
