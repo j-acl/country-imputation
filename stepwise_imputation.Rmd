@@ -2,12 +2,18 @@
 title: "Birth Country Imputation"
 author: "Jamie Christy & Danaia Burtseva"
 date: "2025-06-14"
-output: html_document
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+  
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-setwd("~/Desktop/Schoolwork/2025_SoSe/ARE/Final Project/country-imputation")
+source("preprocess.R")
+# setwd("~/Desktop/Schoolwork/2025_SoSe/ARE/Final Project/country-imputation")
+# setwd("/Users/dana/Documents/R programming/git")
 
 library(tidyverse)
 library(stringi) # for character standardization
@@ -137,7 +143,7 @@ data_df <- (raw_df
 # Save parentheticals
 parentheticals_df <- data_df %>% select(pid, parenthetical) %>% distinct()
 
-print(data_df %>% filter(str_detect(birth_city,'/')))
+# print(data_df %>% filter(str_detect(birth_city,'/')))
 
 data_df <- (data_df
   # process slashes
@@ -847,7 +853,7 @@ print(data_filled_df
 print(data_filled_df
       %>% filter(!is.na(citizenship_2) & !is.na(imp_birth_country))
       %>% mutate(
-        citizenship_1 = case_when(citizenship_1=="0"~"000",.default=citizenship_1),
+        citizenship_1 = case_when(citizenship_1=="0"~"000", TRUE ~ as.character(citizenship_1)),
         c1_match = citizenship_1==imp_birth_country,
         c2_match = citizenship_2==imp_birth_country,
         deu = citizenship_1 == "000"

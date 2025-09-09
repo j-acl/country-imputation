@@ -1,5 +1,8 @@
 # Interactive Birth Country Imputation Dashboard
-# Run this with: shiny::runApp()
+title: "Birth Country Imputation: Interactive Results"
+author: "Jamie Christy & Danaia Burtseva"
+
+
 
 library(shiny)
 library(shinydashboard)
@@ -10,24 +13,32 @@ library(ggplot2)
 library(stringr)
 
 # Load your data and functions here
-# source('your_preprocessing_file.R')
-# data_filled_df <- your_final_data
+# setwd("/Users/dana/Documents/R programming/git/'/Users/dana/Documents/R programming/git'")
+# source("dashboard.R")
 
-# For demo - replace with your actual data loading
-set.seed(123)
-demo_data <- data.frame(
-  pid = 1:48031,
-  birth_city = sample(c("BERLIN", "HAMBURG", "ISTANBUL", "WARSZAWA", "ROMA", "PARIS", "LONDON", NA), 48031, replace = TRUE),
-  birth_country = c(rep(NA, 18814), sample(c("000", "152", "163"), 29217, replace = TRUE)),
-  imp_birth_country = sample(c("000", "152", "163", "380", "826"), 48031, replace = TRUE),
-  imp_name = sample(c("Germany", "Poland", "Turkey", "Italy", "United Kingdom"), 48031, replace = TRUE),
-  imp_type = sample(c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
-                      "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship"), 
-                    48031, replace = TRUE, 
-                    prob = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574)),
-  citizenship_1 = sample(c("000", "152", "163", "380", "826"), 48031, replace = TRUE),
-  citizenship_2 = sample(c("000", "152", "163", "380", "826", NA), 48031, replace = TRUE)
-)
+data_filled_df <- read.csv("data_filled_df.csv", stringsAsFactors = FALSE)
+missing_data<-data_filled_df %>% 
+  filter(imp_type != "given")
+
+df_missing <- nrow(data_filled_df %>% 
+  filter(imp_type != "given"))
+
+
+
+
+# # demo_data <- data.frame(
+# #   pid = 1:48031,
+# #   birth_city = sample(c("BERLIN", "HAMBURG", "ISTANBUL", "WARSZAWA", "ROMA", "PARIS", "LONDON", NA), 48031, replace = TRUE),
+# #   birth_country = c(rep(NA, 18814), sample(c("000", "152", "163"), 29217, replace = TRUE)),
+# #   imp_birth_country = sample(c("000", "152", "163", "380", "826"), 48031, replace = TRUE),
+# #   imp_name = sample(c("Germany", "Poland", "Turkey", "Italy", "United Kingdom"), 48031, replace = TRUE),
+# #   imp_type = sample(c("given", "german_city", "world_list", "ostgebiete", "country_literal", 
+# #                       "unique_city", "city_o50", "german_base", "citizen_o70", "top_citizenship"), 
+# #                     48031, replace = TRUE, 
+# #                     prob = c(29217, 3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574)),
+# #   citizenship_1 = sample(c("000", "152", "163", "380", "826"), 48031, replace = TRUE),
+# #   citizenship_2 = sample(c("000", "152", "163", "380", "826", NA), 48031, replace = TRUE)
+# # )
 
 # Define the imputation methods in order
 imputation_methods <- list(
@@ -40,28 +51,30 @@ imputation_methods <- list(
   "city_o50" = list(name = "Majority City-Country (>50%)", enabled = TRUE, order = 7),
   "german_base" = list(name = "Base German City Names", enabled = TRUE, order = 8),
   "citizen_o70" = list(name = "Majority Citizenship (>70%)", enabled = TRUE, order = 9),
-  "top_citizenship" = list(name = "Fallback to Citizenship", enabled = TRUE, order = 10)
+  "top_citizenship" = list(name = "Fallback to Citizenship", enabled = TRUE, order = 10),
+  "history" = list(name = "German exonym", enabled = TRUE, order = 11)
+
 )
 
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "Birth Country Imputation Dashboard"),
-  
+
   dashboardSidebar(
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
-      menuItem("Method Toggle", tabName = "methods", icon = icon("toggles")),
+      menuItem("Method Toggle", tabName = "methods", icon = icon("sliders-h")),
       menuItem("Data Explorer", tabName = "explorer", icon = icon("table")),
       menuItem("Quality Assessment", tabName = "quality", icon = icon("check-circle"))
     ),
-    
+
     br(),
     h4("Quick Stats", style = "margin-left: 15px;"),
     div(style = "margin-left: 15px; margin-right: 15px;",
         verbatimTextOutput("quick_stats")
     )
   ),
-  
+
   dashboardBody(
     tags$head(
       tags$style(HTML("
@@ -73,7 +86,7 @@ ui <- dashboardPage(
         }
       "))
     ),
-    
+
     tabItems(
       # Overview Tab
       tabItem(tabName = "overview",
@@ -89,7 +102,7 @@ ui <- dashboardPage(
                   tableOutput("success_table")
                 )
               ),
-              
+
               fluidRow(
                 box(
                   title = "Country Distribution", status = "success", solidHeader = TRUE,
@@ -98,8 +111,8 @@ ui <- dashboardPage(
                 )
               )
       ),
-      
-      # Method Toggle Tab  
+
+      # Method Toggle Tab
       tabItem(tabName = "methods",
               fluidRow(
                 box(
@@ -120,25 +133,25 @@ ui <- dashboardPage(
                   actionButton("reset_all", "Reset All", class = "btn-info"),
                   actionButton("select_all", "Select All", class = "btn-success")
                 ),
-                
+
                 box(
                   title = "Live Results", status = "primary", solidHeader = TRUE,
                   width = 8, height = 600,
                   tabsetPanel(
-                    tabPanel("Summary", 
+                    tabPanel("Summary",
                              br(),
                              tableOutput("method_summary")),
-                    tabPanel("Success Rate", 
+                    tabPanel("Success Rate",
                              br(),
                              plotlyOutput("live_success_plot", height = "400px")),
-                    tabPanel("Countries", 
+                    tabPanel("Countries",
                              br(),
                              plotlyOutput("live_country_plot", height = "400px"))
                   )
                 )
               )
       ),
-      
+
       # Data Explorer Tab
       tabItem(tabName = "explorer",
               fluidRow(
@@ -150,7 +163,7 @@ ui <- dashboardPage(
                 )
               )
       ),
-      
+
       # Quality Assessment Tab
       tabItem(tabName = "quality",
               fluidRow(
@@ -165,7 +178,7 @@ ui <- dashboardPage(
                   plotlyOutput("citizenship_plot", height = "300px")
                 )
               ),
-              
+
               fluidRow(
                 box(
                   title = "Method Accuracy Details", status = "primary", solidHeader = TRUE,
@@ -180,7 +193,7 @@ ui <- dashboardPage(
 
 # Server
 server <- function(input, output, session) {
-  
+
   # Reactive data based on selected methods
   filtered_data <- reactive({
     # Get selected methods
@@ -190,14 +203,14 @@ server <- function(input, output, session) {
         selected_methods <- c(selected_methods, method)
       }
     }
-    
+
     # Apply hierarchical imputation logic
-    result <- demo_data
-    
+    result <- missing_data
+
     # Reset imputation for unselected methods
     result$final_country <- result$birth_country  # Start with original
     result$final_method <- ifelse(is.na(result$birth_country), NA, "given")
-    
+
     # Apply selected methods in order
     for (method in selected_methods) {
       if (method != "given") {
@@ -213,10 +226,10 @@ server <- function(input, output, session) {
         }
       }
     }
-    
+
     result
   })
-  
+
   # Quick stats in sidebar
   output$quick_stats <- renderText({
     data <- filtered_data()
@@ -225,7 +238,7 @@ server <- function(input, output, session) {
     still_missing <- sum(is.na(data$final_country))
     imputed <- original_missing - still_missing
     success_rate <- round((imputed / original_missing) * 100, 1)
-    
+
     paste0(
       "Total Records: ", formatC(total, format = "d", big.mark = ","), "\n",
       "Originally Missing: ", formatC(original_missing, format = "d", big.mark = ","), "\n",
@@ -233,11 +246,11 @@ server <- function(input, output, session) {
       "Success Rate: ", success_rate, "%"
     )
   })
-  
+
   # Overview tab plots
   output$performance_plot <- renderPlotly({
     data <- filtered_data()
-    
+
     method_counts <- data %>%
       filter(!is.na(final_method)) %>%
       count(final_method) %>%
@@ -249,26 +262,26 @@ server <- function(input, output, session) {
         by = "final_method"
       ) %>%
       mutate(method_name = ifelse(is.na(method_name), final_method, method_name))
-    
-    p <- ggplot(method_counts, aes(x = reorder(method_name, n), y = n, 
-                                   text = paste0("Method: ", method_name, 
+
+    p <- ggplot(method_counts, aes(x = reorder(method_name, n), y = n,
+                                   text = paste0("Method: ", method_name,
                                                  "<br>Records: ", formatC(n, format="d", big.mark=",")))) +
       geom_col(fill = "steelblue", alpha = 0.7) +
       coord_flip() +
       labs(title = "Records by Imputation Method",
            x = "Method", y = "Number of Records") +
       theme_minimal()
-    
+
     ggplotly(p, tooltip = "text")
   })
-  
+
   output$success_table <- renderTable({
     data <- filtered_data()
     total <- nrow(data)
     original_missing <- sum(is.na(data$birth_country))
     still_missing <- sum(is.na(data$final_country))
     imputed <- original_missing - still_missing
-    
+
     data.frame(
       Metric = c("Total Records", "Originally Missing", "Successfully Imputed", "Still Missing", "Success Rate"),
       Value = c(
@@ -280,16 +293,16 @@ server <- function(input, output, session) {
       )
     )
   }, striped = TRUE)
-  
+
   output$country_plot <- renderPlotly({
     data <- filtered_data()
-    
+
     country_dist <- data %>%
       filter(!is.na(final_country)) %>%
       count(imp_name) %>%
       arrange(desc(n)) %>%
       head(10)
-    
+
     plot_ly(country_dist, x = ~reorder(imp_name, n), y = ~n, type = 'bar',
             text = ~paste0("Country: ", imp_name, "<br>Records: ", formatC(n, format="d", big.mark=",")),
             hovertemplate = "%{text}<extra></extra>") %>%
@@ -297,7 +310,7 @@ server <- function(input, output, session) {
              xaxis = list(title = "Country"),
              yaxis = list(title = "Number of Records"))
   })
-  
+
   # Method toggle functionality
   observe({
     if (input$reset_all > 0) {
@@ -306,7 +319,7 @@ server <- function(input, output, session) {
       }
     }
   })
-  
+
   observe({
     if (input$select_all > 0) {
       for (method in names(imputation_methods)) {
@@ -314,22 +327,22 @@ server <- function(input, output, session) {
       }
     }
   })
-  
+
   # Live results in method tab
   output$method_summary <- renderTable({
     data <- filtered_data()
-    
+
     selected_count <- sum(sapply(names(imputation_methods), function(m) input[[paste0("toggle_", m)]]))
-    
+
     method_performance <- data %>%
       filter(!is.na(final_method)) %>%
       count(final_method) %>%
       arrange(desc(n))
-    
+
     if (nrow(method_performance) == 0) {
       return(data.frame(Message = "No methods selected"))
     }
-    
+
     method_performance %>%
       mutate(
         Method = final_method,
@@ -338,7 +351,7 @@ server <- function(input, output, session) {
       ) %>%
       select(Method, Records, Percentage)
   })
-  
+
   output$live_success_plot <- renderPlotly({
     data <- filtered_data()
     original_missing <- sum(is.na(data$birth_country))
@@ -346,51 +359,51 @@ server <- function(input, output, session) {
       filter(!is.na(final_method), is.na(birth_country)) %>%
       count(final_method) %>%
       mutate(success_rate = round(n/original_missing*100, 2))
-    
+
     if (nrow(imputed_by_method) == 0) {
       return(plotly_empty())
     }
-    
+
     p <- ggplot(imputed_by_method, aes(x = reorder(final_method, success_rate), y = success_rate)) +
       geom_col(fill = "darkgreen", alpha = 0.7) +
       coord_flip() +
       labs(title = "Success Rate by Method", x = "Method", y = "Success Rate (%)") +
       theme_minimal()
-    
+
     ggplotly(p)
   })
-  
+
   output$live_country_plot <- renderPlotly({
     data <- filtered_data()
-    
+
     if (sum(!is.na(data$final_country)) == 0) {
       return(plotly_empty())
     }
-    
+
     country_pie <- data %>%
       filter(!is.na(final_country)) %>%
       count(imp_name) %>%
       arrange(desc(n)) %>%
       head(8)
-    
+
     plot_ly(country_pie, labels = ~imp_name, values = ~n, type = 'pie',
             textposition = 'inside', textinfo = 'label+percent') %>%
       layout(title = "Country Distribution")
   })
-  
+
   # Data Explorer
   output$data_table <- DT::renderDataTable({
     data <- filtered_data() %>%
       select(ID = pid, `Birth City` = birth_city, `Original Country` = birth_country,
-             `Final Country` = final_country, `Country Name` = imp_name, 
+             `Final Country` = final_country, `Country Name` = imp_name,
              `Method Used` = final_method) %>%
       head(5000)  # Limit for performance
-    
-    datatable(data, 
+
+    datatable(data,
               filter = 'top',
               options = list(pageLength = 25, scrollX = TRUE))
   })
-  
+
   # Quality Assessment
   output$exact_matches_plot <- renderPlotly({
     # Simulate exact match analysis
@@ -400,17 +413,17 @@ server <- function(input, output, session) {
       TotalAttempts = c(100, 100, 100, 100, 100)
     ) %>%
       mutate(SuccessRate = ExactMatches/TotalAttempts*100)
-    
+
     p <- ggplot(exact_matches, aes(x = reorder(Method, SuccessRate), y = SuccessRate)) +
       geom_col(fill = "orange", alpha = 0.7) +
       coord_flip() +
-      labs(title = "Exact Match Success Rate by Method", 
+      labs(title = "Exact Match Success Rate by Method",
            x = "Method", y = "Success Rate (%)") +
       theme_minimal()
-    
+
     ggplotly(p)
   })
-  
+
   output$citizenship_plot <- renderPlotly({
     # Simulate citizenship validation
     citizenship_validation <- data.frame(
@@ -418,7 +431,7 @@ server <- function(input, output, session) {
       Count = c(2500, 800, 15000, 1200, 300),
       Percentage = c(26.0, 8.3, 46.2, 12.5, 3.1)
     )
-    
+
     plot_ly(citizenship_validation, x = ~Category, y = ~Count, type = 'bar',
             text = ~paste0("Count: ", formatC(Count, big.mark=","), "<br>Percentage: ", Percentage, "%"),
             hovertemplate = "%{text}<extra></extra>") %>%
@@ -426,23 +439,374 @@ server <- function(input, output, session) {
              xaxis = list(title = "Validation Category"),
              yaxis = list(title = "Number of Records"))
   })
-  
-  output$accuracy_table <- DT::renderDataTable({
-    # Simulate detailed accuracy metrics
-    accuracy_data <- data.frame(
-      Method = names(imputation_methods)[-1],  # Exclude 'given'
-      `Records Processed` = c(3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
-      `Exact Matches` = c(2720, 792, 427, 845, 660, 1890, 1440, 665, 6002),
-      `Success Rate` = c(85.0, 72.0, 94.9, 94.9, 88.0, 90.0, 80.0, 70.0, 70.0),
-      `Avg Confidence` = c(0.95, 0.78, 0.99, 0.88, 0.92, 0.85, 0.72, 0.65, 0.60)
-    )
-    
-    datatable(accuracy_data,
-              options = list(pageLength = 15, scrollX = TRUE)) %>%
-      formatPercentage(c('Success Rate'), 1) %>%
-      formatRound(c('Avg Confidence'), 2)
-  })
+
+  # output$accuracy_table <- DT::renderDataTable({
+  #   # Simulate detailed accuracy metrics
+  #   accuracy_data <- data.frame(
+  #     Method = names(imputation_methods)[-1],  # Exclude 'given'
+  #     `Records Processed` = c(3200, 1100, 450, 890, 750, 2100, 1800, 950, 8574),
+  #     `Exact Matches` = c(2720, 792, 427, 845, 660, 1890, 1440, 665, 6002),
+  #     `Success Rate` = c(85.0, 72.0, 94.9, 94.9, 88.0, 90.0, 80.0, 70.0, 70.0),
+  #     `Avg Confidence` = c(0.95, 0.78, 0.99, 0.88, 0.92, 0.85, 0.72, 0.65, 0.60)
+  #   )
+  #
+  #   output$accuracy_table <- DT::renderDataTable({
+  #     data <- filtered_data()
+  #
+  #     # Get all methods except "given" (optional)
+  #     methods_to_show <- names(imputation_methods)[names(imputation_methods) != "given"]
+  #
+  #     # Calculate records processed per method
+  #     records_processed <- sapply(methods_to_show, function(m) {
+  #       sum(data$final_method == m, na.rm = TRUE)
+  #     })
+  #
+  #     # Placeholder: Exact matches (replace with real metric if available)
+  #     exact_matches <- round(records_processed * runif(length(records_processed), 0.7, 0.95))
+  #
+  #     # Placeholder: Average confidence (replace with real metric if available)
+  #     avg_conf <- runif(length(records_processed), 0.6, 0.99)
+  #
+  #     accuracy_data <- data.frame(
+  #       Method = methods_to_show,
+  #       `Records Processed` = records_processed,
+  #       `Exact Matches` = exact_matches,
+  #       `Success Rate` = round(exact_matches / records_processed * 100, 1),
+  #       `Avg Confidence` = round(avg_conf, 2)
+  #     )
+  #
+  #     datatable(accuracy_data,
+  #               options = list(pageLength = 15, scrollX = TRUE)) %>%
+  #       formatPercentage(c('Success Rate'), 1) %>%
+  #       formatRound(c('Avg Confidence'), 2)
+  #   })
+  #
+  #
+  #   datatable(accuracy_data,
+  #             options = list(pageLength = 15, scrollX = TRUE)) %>%
+  #     formatPercentage(c('Success Rate'), 1) %>%
+  #     formatRound(c('Avg Confidence'), 2)
+  # }
+
+
+output$accuracy_table <- DT::renderDataTable({
+  datatable(data.frame(Message = "No data yet"))
+})
 }
 
 # Run the app
 shinyApp(ui = ui, server = server)
+
+
+
+# Summary of imputation types
+# table(missing_data$imp_type)
+
+# # Top 10 birth cities
+# data_filled_df %>%
+#   count(birth_city, sort = TRUE) %>%
+#   head(10)
+#
+# # Top 10 birth countries
+# data_filled_df %>%
+#   count(birth_country, sort = TRUE) %>%
+#   head(10)
+#
+# # Citizenship distribution
+# data_filled_df %>%
+#   count(citizenship, sort = TRUE) %>%
+#   head(10)
+#
+# # Missing value summary
+# sapply(data_filled_df, function(x) sum(is.na(x)))
+#
+#
+#
+# library(shiny)
+# library(dplyr)
+# library(ggplot2)
+#
+# ui <- fluidPage(
+#   titlePanel("Data Dashboard"),
+#
+#   sidebarLayout(
+#     sidebarPanel(
+#       selectInput("impType", "Select Imputation Type:",
+#                   choices = c("All", unique(data_filled_df$imp_type))),
+#       selectInput("metric", "Choose Metric:",
+#                   choices = c("Birth City", "Birth Country", "Citizenship"))
+#     ),
+#
+#     mainPanel(
+#       plotOutput("barPlot")
+#     )
+#   )
+# )
+#
+# server <- function(input, output) {
+#   filtered_data <- reactive({
+#     if(input$impType == "All") {
+#       data_filled_df
+#     } else {
+#       data_filled_df %>% filter(imp_type == input$imp_type)
+#     }
+#   })
+#
+#   output$barPlot <- renderPlot({
+#     df <- filtered_data()
+#
+#     if(input$metric == "Birth City") {
+#       df_plot <- df %>% count(birth_city, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_city, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "steelblue") +
+#         coord_flip() +
+#         labs(x = "Birth City", y = "Count")
+#
+#     } else if(input$metric == "Birth Country") {
+#       df_plot <- df %>% count(birth_country, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_country, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "darkgreen") +
+#         coord_flip() +
+#         labs(x = "Birth Country", y = "Count")
+#
+#     } else {
+#       df_plot <- df %>% count(citizenship, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(citizenship, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "purple") +
+#         coord_flip() +
+#         labs(x = "Citizenship", y = "Count")
+#     }
+#   })
+# }
+#
+# shinyApp(ui = ui, server = server)
+#
+#
+# library(shiny)
+# library(dplyr)
+# library(ggplot2)
+#
+# ui <- fluidPage(
+#   titlePanel("Data Dashboard"),
+#
+#   sidebarLayout(
+#     sidebarPanel(
+#       selectInput("impType", "Select Imputation Type:",
+#                   choices = c("All", unique(data_filled_df$imp_type))),
+#       selectInput("metric", "Choose Metric:",
+#                   choices = c("Birth City", "Birth Country", "Citizenship"))
+#     ),
+#
+#     mainPanel(
+#       plotOutput("barPlot", height = "600px")  # default is too small
+#     )
+#   )
+# )
+#
+# server <- function(input, output) {
+#   filtered_data <- reactive({
+#     if(input$impType == "All") {
+#       data_filled_df
+#     } else {
+#       data_filled_df %>% filter(imp_type == input$impType)
+#     }
+#   })
+#
+#   output$barPlot <- renderPlot({
+#     df <- filtered_data()
+#
+#     if(input$metric == "Birth City") {
+#       df_plot <- df %>% count(birth_city, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_city, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "steelblue") +
+#         coord_flip() +
+#         labs(x = "Birth City", y = "Count")
+#
+#     } else if(input$metric == "Birth Country") {
+#       df_plot <- df %>% count(birth_country, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_country, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "darkgreen") +
+#         coord_flip() +
+#         labs(x = "Birth Country", y = "Count")
+#
+#     } else {
+#       df_plot <- df %>% count(citizenship, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(citizenship, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "purple") +
+#         coord_flip() +
+#         labs(x = "Citizenship", y = "Count")
+#     }
+#   }, height = 600)
+# }
+#
+# shinyApp(ui = ui, server = server)
+#
+#
+# library(shiny)
+# library(dplyr)
+# library(ggplot2)
+#
+# ui <- fluidPage(
+#   titlePanel("Data Dashboard"),
+#
+#   sidebarLayout(
+#     sidebarPanel(
+#       selectInput("impType", "Select Imputation Type:",
+#                   choices = c("All", unique(data_filled_df$imp_type))),
+#       selectInput("metric", "Choose Metric:",
+#                   choices = c("Birth City", "Birth Country", "Citizenship"))
+#     ),
+#
+#     mainPanel(
+#       plotOutput("barPlot")
+#     )
+#   )
+# )
+#
+# server <- function(input, output) {
+#   filtered_data <- reactive({
+#     if(input$impType == "All") {
+#       data_filled_df
+#     } else {
+#       data_filled_df %>% filter(imp_type == input$impType)
+#     }
+#   })
+#
+#   output$barPlot <- renderPlot({
+#     df <- filtered_data()
+#
+#     if(input$metric == "Birth City") {
+#       df_plot <- df %>% count(birth_city, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_city, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "steelblue") +
+#         coord_flip() +
+#         labs(x = "Birth City", y = "Count")
+#
+#     } else if(input$metric == "Birth Country") {
+#       df_plot <- df %>% count(birth_country, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_country, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "darkgreen") +
+#         coord_flip() +
+#         labs(x = "Birth Country", y = "Count")
+#
+#     } else {
+#       df_plot <- df %>% count(citizenship, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(citizenship, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "purple") +
+#         coord_flip() +
+#         labs(x = "Citizenship", y = "Count")
+#     }
+#   })
+# }
+#
+# shinyApp(ui = ui, server = server)
+#
+#
+# library(shiny)
+# library(dplyr)
+# library(ggplot2)
+# library(shinydashboard)
+#
+# # Define UI
+# ui <- dashboardPage(
+#   dashboardHeader(title = "Data Dashboard"),
+#
+#   dashboardSidebar(
+#     selectInput("impType", "Imputation Type:",
+#                 choices = c("All", unique(data_filled_df$imp_type)),
+#                 multiple = TRUE, selected = "All"),
+#
+#     selectInput("birthCountry", "Birth Country:",
+#                 choices = c("All", unique(data_filled_df$birth_country)),
+#                 multiple = TRUE, selected = "All"),
+#
+#     selectInput("citizenship", "Citizenship:",
+#                 choices = c("All", unique(data_filled_df$citizenship)),
+#                 multiple = TRUE, selected = "All"),
+#
+#     selectInput("metric", "Choose Metric for Plot:",
+#                 choices = c("Birth City", "Birth Country", "Citizenship"))
+#   ),
+#
+#   dashboardBody(
+#     fluidRow(
+#       valueBoxOutput("totalRows"),
+#       valueBoxOutput("totalMissing"),
+#       valueBoxOutput("uniqueCities"),
+#       valueBoxOutput("uniqueCountries")
+#     ),
+#
+#     fluidRow(
+#       box(title = "Top Categories", width = 12, status = "primary", solidHeader = TRUE,
+#           plotOutput("barPlot"))
+#     )
+#   )
+# )
+#
+# # Define Server
+# server <- function(input, output, session) {
+#
+#   filtered_data <- reactive({
+#     df <- data_filled_df
+#
+#     if(!("All" %in% input$impType)) df <- df %>% filter(imp_type %in% input$impType)
+#     if(!("All" %in% input$birthCountry)) df <- df %>% filter(birth_country %in% input$birthCountry)
+#     if(!("All" %in% input$citizenship)) df <- df %>% filter(citizenship %in% input$citizenship)
+#
+#     return(df)
+#   })
+#
+#   # Summary statistics
+#   output$totalRows <- renderValueBox({
+#     valueBox(
+#       nrow(filtered_data()), "Total Rows", icon = icon("table"), color = "blue"
+#     )
+#   })
+#
+#   output$totalMissing <- renderValueBox({
+#     valueBox(
+#       sum(is.na(filtered_data())), "Missing Values", icon = icon("exclamation-triangle"), color = "red"
+#     )
+#   })
+#
+#   output$uniqueCities <- renderValueBox({
+#     valueBox(
+#       length(unique(filtered_data()$birth_city)), "Unique Cities", icon = icon("city"), color = "green"
+#     )
+#   })
+#
+#   output$uniqueCountries <- renderValueBox({
+#     valueBox(
+#       length(unique(filtered_data()$birth_country)), "Unique Countries", icon = icon("flag"), color = "yellow"
+#     )
+#   })
+#
+#   # Bar plot for top categories
+#   output$barPlot <- renderPlot({
+#     df <- filtered_data()
+#
+#     if(input$metric == "Birth City"){
+#       df_plot <- df %>% count(birth_city, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_city, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "steelblue") + coord_flip() +
+#         labs(x = "Birth City", y = "Count")
+#
+#     } else if(input$metric == "Birth Country"){
+#       df_plot <- df %>% count(birth_country, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(birth_country, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "darkgreen") + coord_flip() +
+#         labs(x = "Birth Country", y = "Count")
+#
+#     } else {
+#       df_plot <- df %>% count(citizenship, sort = TRUE) %>% head(10)
+#       ggplot(df_plot, aes(x = reorder(citizenship, n), y = n)) +
+#         geom_bar(stat = "identity", fill = "purple") + coord_flip() +
+#         labs(x = "Citizenship", y = "Count")
+#     }
+#   })
+# }
+#
+# # Run app
+# shinyApp(ui, server)
+
+
